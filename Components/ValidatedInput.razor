@@ -1,0 +1,267 @@
+@using ThermalCalculator.Wasm.Services
+@using static ThermalCalculator.Wasm.Services.ValidationHelper
+
+<div class="@ContainerClass">
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <label class="form-label">
+            @Label
+            @if (IsRequired)
+            {
+                <span class="text-danger">*</span>
+            }
+            @if (!string.IsNullOrEmpty(Tooltip))
+            {
+                <button type="button" class="btn btn-sm btn-outline-secondary ms-2"
+                        data-bs-toggle="tooltip" data-bs-placement="top" title="@Tooltip">
+                    <i class="bi bi-info-circle"></i>
+                </button>
+            }
+        </label>
+    }
+    
+    <div class="input-group @(HasValidationMessage ? "has-validation" : "")">
+        @if (InputType == "number")
+        {
+            <input type="number" 
+                   class="@GetInputClass()" 
+                   value="@Value" 
+                   @onchange="OnValueChanged"
+                   @oninput="OnInput"
+                   step="@Step"
+                   min="@Min"
+                   max="@Max"
+                   placeholder="@Placeholder"
+                   disabled="@IsDisabled" />
+        }
+        else if (InputType == "select")
+        {
+            <select class="@GetInputClass()" 
+                    value="@Value" 
+                    @onchange="OnValueChanged"
+                    disabled="@IsDisabled">
+                @if (!string.IsNullOrEmpty(Placeholder))
+                {
+                    <option value="">@Placeholder</option>
+                }
+                @if (SelectOptions != null)
+                {
+                    @foreach (var option in SelectOptions)
+                    {
+                        <option value="@option.Value">@option.Text</option>
+                    }
+                }
+            </select>
+        }
+        else
+        {
+            <input type="@InputType" 
+                   class="@GetInputClass()" 
+                   value="@Value" 
+                   @onchange="OnValueChanged"
+                   @oninput="OnInput"
+                   placeholder="@Placeholder"
+                   disabled="@IsDisabled" />
+        }
+        
+        @if (!string.IsNullOrEmpty(Unit))
+        {
+            <span class="input-group-text">@Unit</span>
+        }
+        
+        @if (HasValidationMessage)
+        {
+            <div class="invalid-feedback">
+                @ValidationMessage
+            </div>
+        }
+    </div>
+    
+    @if (ValidationResults?.Any() == true)
+    {
+        <div class="mt-2">
+            @foreach (var result in ValidationResults.OrderByDescending(r => r.Severity))
+            {
+                <div class="alert alert-@GetAlertClass(result.Severity) py-2 mb-2" role="alert">
+                    <i class="@GetSeverityIcon(result.Severity) me-2"></i>
+                    <strong>@result.Message</strong>
+                    @if (!string.IsNullOrEmpty(result.Details))
+                    {
+                        <br><small>@result.Details</small>
+                    }
+                    @if (!string.IsNullOrEmpty(result.Suggestion))
+                    {
+                        <br><small class="text-muted"><i class="bi bi-lightbulb me-1"></i>@result.Suggestion</small>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string InputType { get; set; } = "text";
+    [Parameter] public string Placeholder { get; set; } = string.Empty;
+    [Parameter] public string Unit { get; set; } = string.Empty;
+    [Parameter] public bool IsRequired { get; set; } = false;
+    [Parameter] public bool IsDisabled { get; set; } = false;
+    [Parameter] public string Tooltip { get; set; } = string.Empty;
+    [Parameter] public string ContainerClass { get; set; } = "mb-3";
+    
+    // Pro number input
+    [Parameter] public string Step { get; set; } = "1";
+    [Parameter] public string Min { get; set; } = string.Empty;
+    [Parameter] public string Max { get; set; } = string.Empty;
+    
+    // Pro select input
+    [Parameter] public List<SelectOption>? SelectOptions { get; set; }
+    
+    // Validace
+    [Parameter] public Func<string, List<ValidationResult>>? CustomValidator { get; set; }
+    [Parameter] public bool ValidateOnInput { get; set; } = false;
+    
+    private List<ValidationResult> ValidationResults { get; set; } = new();
+    private string ValidationMessage => ValidationResults
+        .Where(r => r.Severity >= ValidationSeverity.Error)
+        .FirstOrDefault()?.Message ?? string.Empty;
+    private bool HasValidationMessage => !string.IsNullOrEmpty(ValidationMessage);
+    
+    public class SelectOption
+    {
+        public string Value { get; set; } = string.Empty;
+        public string Text { get; set; } = string.Empty;
+    }
+    
+    private async Task OnValueChanged(ChangeEventArgs e)
+    {
+        Value = e.Value?.ToString() ?? string.Empty;
+        await ValidateValue();
+        await ValueChanged.InvokeAsync(Value);
+    }
+    
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        if (ValidateOnInput)
+        {
+            Value = e.Value?.ToString() ?? string.Empty;
+            await ValidateValue();
+            await ValueChanged.InvokeAsync(Value);
+        }
+    }
+    
+    private Task ValidateValue()
+    {
+        ValidationResults.Clear();
+        
+        // Základní validace podle typu
+        if (IsRequired && string.IsNullOrWhiteSpace(Value))
+        {
+            ValidationResults.Add(new ValidationResult
+            {
+                IsValid = false,
+                Severity = ValidationSeverity.Error,
+                Message = "Toto pole je povinné"
+            });
+        }
+        
+        // Number validace
+        if (InputType == "number" && !string.IsNullOrEmpty(Value))
+        {
+            if (!double.TryParse(Value, out double numValue))
+            {
+                ValidationResults.Add(new ValidationResult
+                {
+                    IsValid = false,
+                    Severity = ValidationSeverity.Error,
+                    Message = "Zadejte platné číslo"
+                });
+            }
+            else
+            {
+                if (!string.IsNullOrEmpty(Min) && double.TryParse(Min, out double minValue) && numValue < minValue)
+                {
+                    ValidationResults.Add(new ValidationResult
+                    {
+                        IsValid = false,
+                        Severity = ValidationSeverity.Error,
+                        Message = $"Hodnota musí být alespoň {Min}"
+                    });
+                }
+                
+                if (!string.IsNullOrEmpty(Max) && double.TryParse(Max, out double maxValue) && numValue > maxValue)
+                {
+                    ValidationResults.Add(new ValidationResult
+                    {
+                        IsValid = false,
+                        Severity = ValidationSeverity.Error,
+                        Message = $"Hodnota nesmí překročit {Max}"
+                    });
+                }
+            }
+        }
+        
+        // Vlastní validátor
+        if (CustomValidator != null)
+        {
+            var customResults = CustomValidator(Value);
+            ValidationResults.AddRange(customResults);
+        }
+        
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+    
+    private string GetInputClass()
+    {
+        var baseClass = InputType == "select" ? "form-select" : "form-control";
+        
+        if (HasValidationMessage)
+        {
+            return $"{baseClass} is-invalid";
+        }
+        
+        if (ValidationResults.Any(r => r.Severity == ValidationSeverity.Warning))
+        {
+            return $"{baseClass} border-warning";
+        }
+        
+        if (ValidationResults.Any(r => r.IsValid && r.Severity == ValidationSeverity.Info))
+        {
+            return $"{baseClass} border-success";
+        }
+        
+        return baseClass;
+    }
+    
+    private string GetAlertClass(ValidationSeverity severity)
+    {
+        return severity switch
+        {
+            ValidationSeverity.Info => "info",
+            ValidationSeverity.Warning => "warning", 
+            ValidationSeverity.Error => "danger",
+            ValidationSeverity.Critical => "danger",
+            _ => "secondary"
+        };
+    }
+    
+    // Veřejná metoda pro externí validaci
+    public async Task ValidateExternal(List<ValidationResult> results)
+    {
+        ValidationResults.Clear();
+        ValidationResults.AddRange(results);
+        StateHasChanged();
+    }
+    
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Inicializace tooltipů
+            await Task.Delay(100); // Krátké zpoždění pro zajištění, že DOM je připraven
+        }
+    }
+}

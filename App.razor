@@ -1,0 +1,45 @@
+﻿<CascadingValue Value="@this">
+    <Router AppAssembly="@typeof(App).Assembly">
+        <Found Context="routeData">
+            <ErrorBoundary>
+                <ChildContent>
+                    <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
+                    <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+                </ChildContent>
+                <ErrorContent Context="exception">
+                    <LayoutView Layout="@typeof(MainLayout)">
+                        <RadzenStack Orientation="Orientation.Vertical" Gap="2rem" JustifyContent="JustifyContent.Center" AlignItems="AlignItems.Center" Style="min-height: 60vh; padding: 2rem;">
+                            <RadzenIcon Icon="error" Style="font-size: 72px; color: var(--rz-danger);" />
+                            <RadzenText TextStyle="TextStyle.H4" Text="Nastala chyba při vykreslování komponenty" />
+                            <RadzenText TextStyle="TextStyle.Body1" Style="max-width: 600px; text-align: center;">
+                                Omlouváme se za komplikace. Zkuste prosím obnovit stránku.
+                            </RadzenText>
+                            <RadzenStack Orientation="Orientation.Horizontal" Gap="1rem">
+                                <RadzenButton Text="Obnovit stránku" Icon="refresh" ButtonStyle="ButtonStyle.Primary"
+                                             Click="@(() => navigationManager.NavigateTo(navigationManager.Uri, true))" />
+                                <RadzenButton Text="Hlavní strana" Icon="home" ButtonStyle="ButtonStyle.Secondary"
+                                             Click="@(() => navigationManager.NavigateTo("/", true))" />
+                            </RadzenStack>
+                        </RadzenStack>
+                    </LayoutView>
+                </ErrorContent>
+            </ErrorBoundary>
+        </Found>
+        <NotFound>
+            <PageTitle>Stránka nenalezena</PageTitle>
+            <LayoutView Layout="@typeof(MainLayout)">
+                <RadzenStack Orientation="Orientation.Vertical" Gap="2rem" JustifyContent="JustifyContent.Center" AlignItems="AlignItems.Center" Style="min-height: 60vh; padding: 2rem;">
+                    <RadzenIcon Icon="search_off" Style="font-size: 72px; color: var(--rz-warning);" />
+                    <RadzenText TextStyle="TextStyle.H4" Text="Stránka nenalezena" />
+                    <RadzenText TextStyle="TextStyle.Body1" Text="Omlouváme se, ale na této adrese nic není." />
+                    <RadzenButton Text="Zpět na hlavní stranu" Icon="home" ButtonStyle="ButtonStyle.Primary"
+                                 Click="@(() => navigationManager.NavigateTo("/", true))" />
+                </RadzenStack>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingValue>
+
+@code {
+    [Inject] private NavigationManager navigationManager { get; set; } = default!;
+}

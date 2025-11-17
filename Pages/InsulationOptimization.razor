@@ -1,0 +1,458 @@
+@page "/insulation-optimization"
+@using ThermalCalculator.Wasm.Models
+@using ThermalCalculator.Wasm.Services
+@inject InsulationOptimizationService OptimizationService
+@inject MaterialService MaterialService
+@inject IJSRuntime JS
+
+<PageTitle>Optimalizace tloušťky izolace</PageTitle>
+
+<RadzenStack Orientation="Orientation.Vertical" Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+        <h3>Optimalizace tloušťky izolace</h3>
+        <RadzenButton Icon="help_outline"
+                     ButtonStyle="ButtonStyle.Primary"
+                     Variant="Variant.Flat"
+                     Click="ShowHelp"
+                     Size="ButtonSize.Large"
+                     title="Zobrazit nápovědu k optimalizaci"
+                     Style="min-width: 40px;" />
+    </RadzenStack>
+    <p><strong>Ekonomická analýza efektivity zateplení</strong></p>
+    <p style="font-size: 0.9em; color: #666;">Výsledky jsou orientační a nezávazné. Pro přesný návrh konzultujte odborného projektanta.</p>
+
+    <RadzenRow Gap="1rem">
+        <!-- Vstupní panel -->
+        <RadzenColumn Size="12" SizeMD="4">
+            <RadzenCard>
+                <RadzenStack Orientation="Orientation.Vertical" Gap="1rem">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                        <RadzenIcon Icon="settings" />
+                        <RadzenText TextStyle="TextStyle.H5" Text="Vstupní parametry" />
+                    </RadzenStack>
+
+                    <!-- Výběr přednastavených materiálů -->
+                    <RadzenFormField Text="Přednastavený materiál:" Variant="Variant.Outlined">
+                        <RadzenDropDown TValue="string"
+                                       Data="@presetNames"
+                                       @bind-Value="selectedPresetName"
+                                       Change="@OnPresetChanged"
+                                       AllowClear="true"
+                                       Placeholder="Vyberte materiál..."
+                                       Style="width: 100%;" />
+                    </RadzenFormField>
+
+                    <!-- Lambda -->
+                    <RadzenFormField Text="Tepelná vodivost λ (W/m·K):" Variant="Variant.Outlined">
+                        <RadzenNumeric TValue="double"
+                                      @bind-Value="input.Lambda"
+                                      Min="0.01m"
+                                      Max="1.0m"
+                                      Step="0.001m"
+                                      ShowUpDown="false"
+                                      Style="width: 100%;" />
+                    </RadzenFormField>
+
+                    <!-- Cena izolace (materiál) -->
+                    <RadzenFormField Text="Cena materiálu (Kč/m²/cm):" Variant="Variant.Outlined">
+                        <RadzenNumeric TValue="double"
+                                      @bind-Value="input.InsulationCostPerCm"
+                                      Min="1m"
+                                      Max="200m"
+                                      Step="1m"
+                                      ShowUpDown="false"
+                                      Style="width: 100%;" />
+                    </RadzenFormField>
+
+                    <!-- Fixní náklady -->
+                    <RadzenFormField Text="Fixní náklady (Kč/m²):" Variant="Variant.Outlined">
+                        <Helper>
+                            <RadzenText TextStyle="TextStyle.Caption" Text="Lešení, práce, lepidlo, omítka" />
+                        </Helper>
+                        <ChildContent>
+                            <RadzenNumeric TValue="double"
+                                          @bind-Value="input.FixedCost"
+                                          Min="0m"
+                                          Max="5000m"
+                                          Step="100m"
+                                          ShowUpDown="false"
+                                          Style="width: 100%;" />
+                        </ChildContent>
+                    </RadzenFormField>
+
+                    <!-- Cena energie -->
+                    <RadzenFormField Text="Cena energie (Kč/kWh):" Variant="Variant.Outlined">
+                        <RadzenNumeric TValue="double"
+                                      @bind-Value="input.EnergyCost"
+                                      Min="0.5m"
+                                      Max="10.0m"
+                                      Step="0.1m"
+                                      ShowUpDown="false"
+                                      Style="width: 100%;" />
+                    </RadzenFormField>
+
+                    <!-- Pokročilé parametry -->
+                    <RadzenExpander>
+                        <HeaderTemplate>
+                            <RadzenText TextStyle="TextStyle.Body2" Text="Pokročilé parametry" />
+                        </HeaderTemplate>
+                        <ChildContent>
+                            <RadzenStack Orientation="Orientation.Vertical" Gap="1rem" Class="rz-mt-3">
+                                <RadzenFormField Text="Rozdíl teplot ΔT (°C):" Variant="Variant.Outlined">
+                                    <RadzenNumeric TValue="double"
+                                                  @bind-Value="input.TemperatureDifference"
+                                                  Min="10m"
+                                                  Max="50m"
+                                                  Step="1m"
+                                                  Style="width: 100%;" />
+                                </RadzenFormField>
+
+                                <RadzenFormField Text="Počet otopných dnů:" Variant="Variant.Outlined">
+                                    <RadzenNumeric TValue="int"
+                                                  @bind-Value="input.HeatingDays"
+                                                  Min="100"
+                                                  Max="300"
+                                                  Step="10"
+                                                  Style="width: 100%;" />
+                                </RadzenFormField>
+
+                                <RadzenFormField Text="Životnost izolace (roky):" Variant="Variant.Outlined">
+                                    <RadzenNumeric TValue="int"
+                                                  @bind-Value="input.LifetimeYears"
+                                                  Min="10"
+                                                  Max="50"
+                                                  Step="5"
+                                                  Style="width: 100%;" />
+                                </RadzenFormField>
+
+                                <!-- Inflace toggle -->
+                                <RadzenFormField Variant="Variant.Outlined">
+                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                        <RadzenCheckBox @bind-Value="input.UseInflation" Name="useInflation" />
+                                        <RadzenLabel Text="Zohlednit roční inflaci energie" Component="useInflation" />
+                                    </RadzenStack>
+                                </RadzenFormField>
+
+                                <!-- Inflace rate - pouze pokud je zapnuto -->
+                                @if (input.UseInflation)
+                                {
+                                    <RadzenFormField Text="Roční inflace (%):" Variant="Variant.Outlined">
+                                        <Helper>
+                                            <RadzenText TextStyle="TextStyle.Caption" Text="Očekávaný růst cen energie" />
+                                        </Helper>
+                                        <ChildContent>
+                                            <RadzenNumeric TValue="double"
+                                                          @bind-Value="input.AnnualInflationRate"
+                                                          Min="0m"
+                                                          Max="15m"
+                                                          Step="0.5m"
+                                                          ShowUpDown="false"
+                                                          Style="width: 100%;" />
+                                        </ChildContent>
+                                    </RadzenFormField>
+                                }
+                            </RadzenStack>
+                        </ChildContent>
+                    </RadzenExpander>
+
+                    <!-- Tlačítko výpočtu -->
+                    <RadzenButton Text="Vypočítat optimalizaci"
+                                 Icon="calculate"
+                                 ButtonStyle="ButtonStyle.Primary"
+                                 Click="CalculateOptimization"
+                                 Style="width: 100%;" />
+                </RadzenStack>
+            </RadzenCard>
+        </RadzenColumn>
+
+        <!-- Graf a výsledky -->
+        <RadzenColumn Size="12" SizeMD="8">
+            @if (result == null)
+            {
+                <RadzenCard>
+                    <RadzenStack Orientation="Orientation.Vertical"
+                                JustifyContent="JustifyContent.Center"
+                                AlignItems="AlignItems.Center"
+                                Gap="1rem"
+                                Style="min-height: 400px;">
+                        <RadzenIcon Icon="insights" Style="font-size: 4rem;" Class="rz-color-base-400" />
+                        <RadzenText TextStyle="TextStyle.H6" Text="Zadejte parametry a klikněte na 'Vypočítat optimalizaci'" Class="rz-color-base-600" />
+                    </RadzenStack>
+                </RadzenCard>
+            }
+            else
+            {
+                <!-- Graf -->
+                <RadzenCard Class="rz-mb-3">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Class="rz-mb-4">
+                        <RadzenIcon Icon="show_chart" />
+                        <RadzenText TextStyle="TextStyle.H5" Text="Ekonomická analýza" />
+                    </RadzenStack>
+
+                    <div id="optimizationChartContainer" style="height: 400px; position: relative;">
+                        <canvas id="optimizationChart"></canvas>
+                    </div>
+                </RadzenCard>
+
+                <!-- Výsledky optimalizace -->
+                <RadzenCard Class="rz-mb-3">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Class="rz-mb-4">
+                        <RadzenIcon Icon="check_circle" style="color: var(--rz-success);" />
+                        <RadzenText TextStyle="TextStyle.H5" Text="Optimální řešení" />
+                    </RadzenStack>
+
+                    <RadzenRow Gap="1rem">
+                        <RadzenColumn Size="12" SizeSM="6" SizeMD="4" SizeLG="2">
+                            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.25rem">
+                                <RadzenText TextStyle="TextStyle.H3" Text="@($"{result.OptimalThickness:F1} cm")" Class="rz-color-primary" />
+                                <RadzenText TextStyle="TextStyle.Body2" Text="Tloušťka" Class="rz-color-base-600" />
+                            </RadzenStack>
+                        </RadzenColumn>
+                        <RadzenColumn Size="12" SizeSM="6" SizeMD="4" SizeLG="2">
+                            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.25rem">
+                                <RadzenText TextStyle="TextStyle.H3" Text="@($"{result.OptimalRValue:F2}")" Class="rz-color-secondary" />
+                                <RadzenText TextStyle="TextStyle.Body2" Text="R [m²K/W]" Class="rz-color-base-600" />
+                            </RadzenStack>
+                        </RadzenColumn>
+                        <RadzenColumn Size="12" SizeSM="6" SizeMD="4" SizeLG="2">
+                            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.25rem">
+                                <RadzenText TextStyle="TextStyle.H3" Text="@($"{result.OptimalUValue:F3}")" Class="rz-color-warning" />
+                                <RadzenText TextStyle="TextStyle.Body2" Text="U [W/m²K]" Class="rz-color-base-600" />
+                            </RadzenStack>
+                        </RadzenColumn>
+                        <RadzenColumn Size="12" SizeSM="6" SizeMD="4" SizeLG="3">
+                            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.25rem">
+                                <RadzenText TextStyle="TextStyle.H3" Text="@($"{result.OptimalPaybackPeriod:F1} let")" Class="rz-color-success" />
+                                <RadzenText TextStyle="TextStyle.Body2" Text="Návratnost" Class="rz-color-base-600" />
+                            </RadzenStack>
+                        </RadzenColumn>
+                        <RadzenColumn Size="12" SizeSM="6" SizeMD="4" SizeLG="3">
+                            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.25rem">
+                                <RadzenText TextStyle="TextStyle.H3" Text="@($"{result.OptimalAnnualSavings:F0} Kč")" Class="rz-color-info" />
+                                <RadzenText TextStyle="TextStyle.Body2" Text="Roční úspora" Class="rz-color-base-600" />
+                            </RadzenStack>
+                        </RadzenColumn>
+                    </RadzenRow>
+
+                    <hr style="margin: 1rem 0;" />
+
+                    <RadzenAlert AlertStyle="AlertStyle.Info" Variant="Variant.Flat" Shade="Shade.Lighter">
+                        @result.Recommendation
+                    </RadzenAlert>
+                </RadzenCard>
+
+                <!-- Srovnávací tabulka -->
+                <RadzenCard>
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Class="rz-mb-4">
+                        <RadzenIcon Icon="compare_arrows" />
+                        <RadzenText TextStyle="TextStyle.H5" Text="Srovnání variant" />
+                    </RadzenStack>
+
+                    <RadzenDataGrid Data="@comparisonData" TItem="OptimizationDataPoint" AllowPaging="false" AllowSorting="false">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="OptimizationDataPoint" Property="Thickness" Title="Tloušťka [cm]">
+                                <Template Context="data">
+                                    @if (Math.Abs(data.Thickness - result.OptimalThickness) < 0.1)
+                                    {
+                                        <RadzenBadge BadgeStyle="BadgeStyle.Success" Text="@($"{data.Thickness:F1} cm")" />
+                                    }
+                                    else
+                                    {
+                                        @($"{data.Thickness:F1} cm")
+                                    }
+                                </Template>
+                            </RadzenDataGridColumn>
+                            <RadzenDataGridColumn TItem="OptimizationDataPoint" Property="RValue" Title="R [m²K/W]" FormatString="{0:F2}" />
+                            <RadzenDataGridColumn TItem="OptimizationDataPoint" Property="UValue" Title="U [W/m²K]" FormatString="{0:F3}" />
+                            <RadzenDataGridColumn TItem="OptimizationDataPoint" Property="InvestmentCost" Title="Investice [Kč/m²]" FormatString="{0:F0}" />
+                            <RadzenDataGridColumn TItem="OptimizationDataPoint" Property="AnnualSavings" Title="Roční úspora [Kč/m²]" FormatString="{0:F0}" />
+                            <RadzenDataGridColumn TItem="OptimizationDataPoint" Property="PaybackPeriod" Title="Návratnost [roky]" FormatString="{0:F1}" />
+                            <RadzenDataGridColumn TItem="OptimizationDataPoint" Property="NetProfit" FormatString="{0:F0}">
+                                <HeaderTemplate>
+                                    Zisk za @(result.Input.LifetimeYears) let [Kč/m²]
+                                </HeaderTemplate>
+                                <Template Context="data">
+                                    <span style="color: @(data.NetProfit > 0 ? "var(--rz-success)" : "var(--rz-danger)")">
+                                        @($"{data.NetProfit:F0} Kč")
+                                    </span>
+                                </Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+                </RadzenCard>
+            }
+        </RadzenColumn>
+    </RadzenRow>
+</RadzenStack>
+
+@code {
+    private InsulationOptimizationInput input = new();
+    private InsulationOptimizationResult? result;
+    private List<OptimizationDataPoint> comparisonData = new();
+    private List<string> presetNames = new();
+    private string? selectedPresetName;
+    private List<OptimizationPreset> presets = new();
+
+    protected override void OnInitialized()
+    {
+        presets = OptimizationPreset.GetPresets();
+        presetNames = presets.Select(p => p.Name).ToList();
+    }
+
+    private void OnPresetChanged()
+    {
+        if (!string.IsNullOrEmpty(selectedPresetName))
+        {
+            var preset = presets.FirstOrDefault(p => p.Name == selectedPresetName);
+            if (preset != null)
+            {
+                input.Lambda = preset.Lambda;
+                input.InsulationCostPerCm = preset.InsulationCostPerCm;
+                input.MaterialName = preset.Name;
+            }
+        }
+    }
+
+    private async Task CalculateOptimization()
+    {
+        try
+        {
+            // Vypočítat optimalizaci
+            result = OptimizationService.CalculateOptimization(input);
+
+            // Získat srovnávací data
+            comparisonData = OptimizationService.GetComparisonData(result);
+
+            // Vykreslit graf
+            await RenderChart();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"Chyba při výpočtu: {ex.Message}");
+            await JS.InvokeVoidAsync("alert", "Došlo k chybě při výpočtu optimalizace.");
+        }
+    }
+
+    private async Task RenderChart()
+    {
+        if (result == null) return;
+
+        // Příprava dat pro Chart.js
+        var thicknesses = result.DataPoints.Select(dp => dp.Thickness).ToArray();
+        var investmentCosts = result.DataPoints.Select(dp => dp.InvestmentCost).ToArray();
+        var cumulativeSavings = result.DataPoints.Select(dp => dp.CumulativeSavings).ToArray();
+        var netProfits = result.DataPoints.Select(dp => dp.NetProfit).ToArray();
+
+        var chartData = new
+        {
+            labels = thicknesses,
+            datasets = new object[]
+            {
+                new
+                {
+                    label = "Investiční náklady",
+                    data = investmentCosts,
+                    borderColor = "rgb(255, 99, 132)",
+                    backgroundColor = "rgba(255, 99, 132, 0.1)",
+                    tension = 0.1,
+                    yAxisID = "y"
+                },
+                new
+                {
+                    label = $"Úspora za {input.LifetimeYears} let",
+                    data = cumulativeSavings,
+                    borderColor = "rgb(75, 192, 192)",
+                    backgroundColor = "rgba(75, 192, 192, 0.1)",
+                    tension = 0.1,
+                    yAxisID = "y"
+                },
+                new
+                {
+                    label = "Čistý zisk",
+                    data = netProfits,
+                    borderColor = "rgb(54, 162, 235)",
+                    backgroundColor = "rgba(54, 162, 235, 0.1)",
+                    tension = 0.1,
+                    borderWidth = 3,
+                    yAxisID = "y"
+                }
+            }
+        };
+
+        await JS.InvokeVoidAsync("renderOptimizationChart", chartData, result.OptimalThickness);
+    }
+
+    private void ShowHelp()
+    {
+        var content = @"
+            <div class='modal-content'>
+                <div class='modal-header'>
+                    <h5 class='modal-title'>Nápověda - Optimalizace tloušťky izolace</h5>
+                    <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+                </div>
+                <div class='modal-body'>
+                    <h6>Ekonomická optimalizace tloušťky izolace</h6>
+                    <p>Tato stránka vypočítá ekonomicky optimální tloušťku izolace pomocí analýzy nákladů a úspor.</p>
+
+                    <h6 class='mt-3'>Základní vzorce:</h6>
+                    <ol>
+                        <li><strong>Tepelný odpor izolace:</strong> R = d / λ
+                            <br><small>kde: d = tloušťka [m], λ = tepelná vodivost [W/(m·K)]</small>
+                        </li>
+                        <li><strong>Součinitel prostupu tepla:</strong> U = 1 / (Rsi + R + Rse)
+                            <br><small>kde: Rsi = odpor přestupu tepla na vnitřní straně (0,13 m²K/W) - teplý vzduch → stěna</small>
+                            <br><small>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Rse = odpor přestupu tepla na vnější straně (0,04 m²K/W) - stěna → venkovní vzduch</small>
+                            <br><small>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;R = tepelný odpor izolace</small>
+                        </li>
+                        <li><strong>Roční tepelné ztráty:</strong> Q = U × ΔT × 24 × D / 1000
+                            <br><small>kde: ΔT = rozdíl teplot [°C], D = počet otopných dnů, Q = ztráty [kWh/m²/rok]</small>
+                        </li>
+                        <li><strong>Roční náklady na vytápění:</strong> NC = Q × cena_energie [Kč/m²/rok]</li>
+                        <li><strong>Investiční náklady:</strong> IC = fixní_náklady + d × cena_za_cm [Kč/m²]</li>
+                        <li><strong>Roční úspora oproti nezateplenému stavu:</strong> Úspora = NC(bez_izolace) - NC(s_izolací)</li>
+                        <li><strong>Doba návratnosti:</strong> DN = IC / roční_úspora [roky]</li>
+                        <li><strong>Čistý zisk za životnost:</strong> Zisk = celková_úspora - IC [Kč/m²]</li>
+                    </ol>
+
+                    <h6 class='mt-3'>Postup výpočtu:</h6>
+                    <ol>
+                        <li>Pro každou tloušťku (1-50 cm) se vypočítá:
+                            <ul>
+                                <li>Tepelný odpor R a součinitel U</li>
+                                <li>Roční tepelné ztráty</li>
+                                <li>Investiční náklady</li>
+                                <li>Roční úspora energie</li>
+                                <li>Doba návratnosti</li>
+                                <li>Čistý zisk za dobu životnosti</li>
+                            </ul>
+                        </li>
+                        <li>Optimální tloušťka = <strong>maximum čistého zisku</strong> (ne nejkratší návratnost!)</li>
+                        <li>Zohlednění inflace (volitelně): Celková_úspora = Σ(úspora_rok_1 × (1 + i)^n)
+                            <br><small>kde: i = roční inflace, n = rok</small>
+                        </li>
+                    </ol>
+
+                    <h6 class='mt-3'>Graf:</h6>
+                    <ul>
+                        <li><span style='color: red;'>●</span> <strong>Červená křivka:</strong> Investiční náklady (rostou lineárně s tloušťkou)</li>
+                        <li><span style='color: green;'>●</span> <strong>Zelená křivka:</strong> Celková úspora za životnost (roste, ale zpomaluje)</li>
+                        <li><span style='color: blue;'>●</span> <strong>Modrá křivka:</strong> Čistý zisk (zelená - červená)</li>
+                    </ul>
+                    <p><strong>→ Optimální bod je tam, kde je MODRÁ křivka nejvyšší!</strong></p>
+
+                    <h6 class='mt-3'>Poznámky:</h6>
+                    <ul>
+                        <li>Tlustší izolace = větší investice, ale menší úspora energie</li>
+                        <li>Po určité tloušťce už další izolace není ekonomická</li>
+                        <li>Výsledky jsou orientační - konzultujte projektanta</li>
+                        <li>Nezohledňuje: dotace, cenu nemovitosti, ekologii</li>
+                    </ul>
+                </div>
+                <div class='modal-footer'>
+                    <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
+                </div>
+            </div>";
+
+        JS.InvokeVoidAsync("showModal", "infoModal", content);
+    }
+}

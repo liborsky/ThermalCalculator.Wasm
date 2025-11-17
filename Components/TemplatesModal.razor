@@ -1,0 +1,126 @@
+@using ThermalCalculator.Wasm.Models
+@using ThermalCalculator.Wasm.Services
+@inject WallTemplateService TemplateService
+
+<!-- Templates Modal -->
+<div class="modal fade" id="templatesModal" tabindex="-1" aria-labelledby="templatesModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="templatesModalLabel">
+                    <i class="bi bi-lightning-charge"></i> Rychlé šablony konstrukcí
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" title="Zavřít"></button>
+            </div>
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                @if (templates != null && templates.Any())
+                {
+                    <div class="row">
+                        @* Populární šablony *@
+                        @{
+                            var popularTemplates = templates.Where(t => t.IsPopular).ToList();
+                        }
+                        @if (popularTemplates.Any())
+                        {
+                            <div class="col-12 mb-4">
+                                <h6><i class="bi bi-star-fill text-warning"></i> Populární šablony</h6>
+                                <div class="row">
+                                    @foreach (var template in popularTemplates)
+                                    {
+                                        <div class="col-md-6 mb-3">
+                                            <div class="card template-card popular" style="cursor: pointer;" @onclick="() => SelectTemplate(template.Name)">
+                                                <div class="card-body">
+                                                    <div class="d-flex align-items-center mb-2">
+                                                        <i class="@template.Icon me-2 text-primary fs-4"></i>
+                                                        <div>
+                                                            <h6 class="card-title mb-0">@template.Name</h6>
+                                                            <small class="text-muted">@($"{template.EstimatedCost:F0} Kč/m²")</small>
+                                                        </div>
+                                                    </div>
+                                                    <p class="card-text small mb-2">@template.Description</p>
+                                                    <div class="small text-muted">
+                                                        <i class="bi bi-layers"></i> @template.Layers.Count vrstev
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+
+                        @* Šablony podle kategorií *@
+                        @foreach (var category in categories)
+                        {
+                            var categoryTemplates = templates.Where(t => t.Category == category && !t.IsPopular).ToList();
+                            if (categoryTemplates.Any())
+                            {
+                                <div class="col-12 mb-4">
+                                    <div class="template-category-header">
+                                        <h6><i class="bi bi-folder"></i> @TemplateService.GetCategoryDisplayName(category)</h6>
+                                    </div>
+                                    <div class="row">
+                                        @foreach (var template in categoryTemplates)
+                                        {
+                                            <div class="col-md-6 mb-3">
+                                                <div class="card template-card" style="cursor: pointer;" @onclick="() => SelectTemplate(template.Name)">
+                                                    <div class="card-body">
+                                                        <div class="d-flex align-items-center mb-2">
+                                                            <i class="@template.Icon me-2 text-secondary fs-5"></i>
+                                                            <div>
+                                                                <h6 class="card-title mb-0">@template.Name</h6>
+                                                                <small class="text-muted">@($"{template.EstimatedCost:F0} Kč/m²")</small>
+                                                            </div>
+                                                        </div>
+                                                        <p class="card-text small mb-2">@template.Description</p>
+                                                        <div class="small text-muted">
+                                                            <i class="bi bi-layers"></i> @template.Layers.Count vrstev
+                                                        </div>
+                                                        @if (!string.IsNullOrEmpty(template.Notes))
+                                                        {
+                                                            <div class="small text-info mt-1">
+                                                                <i class="bi bi-info-circle"></i> @template.Notes
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="text-center text-muted">
+                        <i class="bi bi-exclamation-circle fs-1"></i>
+                        <p>Žádné šablony nejsou k dispozici.</p>
+                    </div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" title="Zavřít">Zavřít</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback<string> OnTemplateSelected { get; set; }
+
+    private List<WallTemplate> templates = new();
+    private List<string> categories = new();
+
+    protected override void OnInitialized()
+    {
+        templates = TemplateService.GetAllTemplates();
+        categories = TemplateService.GetCategories();
+    }
+
+    private async Task SelectTemplate(string templateName)
+    {
+        await OnTemplateSelected.InvokeAsync(templateName);
+    }
+}

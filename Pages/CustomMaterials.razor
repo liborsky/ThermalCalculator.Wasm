@@ -1,0 +1,706 @@
+@page "/custom-materials"
+@using ThermalCalculator.Wasm.Models
+@using ThermalCalculator.Wasm.Services
+@inject IJSRuntime JS
+
+<PageTitle>Správa vlastních materiálů</PageTitle>
+
+<RadzenStack Orientation="Orientation.Vertical" Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+        <RadzenText TextStyle="TextStyle.H3" Text="Správa vlastních materiálů" />
+        <RadzenLink Path="/thermal-resistance" Text="Zpět na výpočet" Icon="arrow_back" ButtonVariant="Variant.Outlined" />
+    </RadzenStack>
+
+    <RadzenRow Gap="1rem">
+        <RadzenColumn Size="8">
+            <RadzenCard>
+                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center" Class="rz-mb-4">
+                    <RadzenText TextStyle="TextStyle.H5" Text="Vlastní materiály" />
+                    <RadzenButton Icon="add" Text="Přidat materiál" ButtonStyle="ButtonStyle.Primary" Click="ShowAddDialog" />
+                </RadzenStack>
+                <RadzenAlert AlertStyle="AlertStyle.Info" ShowIcon="false" Class="rz-mb-3">
+                    Počet vlastních materiálů: @customMaterials.Count
+                </RadzenAlert>
+                
+                @if (customMaterials.Count == 0)
+                {
+                    <RadzenText TextStyle="TextStyle.Body1" Text="Zatím nemáte žádné vlastní materiály. Přidejte první materiál pomocí tlačítka výše." Class="rz-color-base-600" />
+                }
+                else
+                {
+                    <RadzenDataGrid AllowFiltering="true" AllowPaging="true" PageSize="10" 
+                                  AllowSorting="true" Data="@customMaterials" TItem="Material">
+                        <Columns>
+                            <RadzenDataGridColumn TItem="Material" Property="Name" Title="Název" />
+                            <RadzenDataGridColumn TItem="Material" Property="Category" Title="Kategorie" />
+                            <RadzenDataGridColumn TItem="Material" Property="ThermalConductivity" Title="Tepelná vodivost [W/(m·K)]" FormatString="{0:F3}" />
+                            <RadzenDataGridColumn TItem="Material" Property="Density" Title="Hustota [kg/m³]" FormatString="{0:F0}" />
+                            <RadzenDataGridColumn TItem="Material" Property="PricePerM3" Title="Cena [Kč/m³]" FormatString="{0:F0}" />
+                            <RadzenDataGridColumn TItem="Material" Property="DiffusionResistanceFactor" Title="μ [-]" FormatString="{0:F1}" />
+                            <RadzenDataGridColumn TItem="Material" Title="Akce" Sortable="false" Filterable="false">
+                                <Template Context="material">
+                                    <RadzenStack Orientation="Orientation.Horizontal" Gap="0.25rem">
+                                        <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Light" Size="ButtonSize.Small"
+                                                    Click="() => EditMaterial(material)" title="Upravit" />
+                                        <RadzenButton Icon="delete" ButtonStyle="ButtonStyle.Danger" Size="ButtonSize.Small"
+                                                    Click="() => DeleteMaterial(material)" title="Smazat" />
+                                    </RadzenStack>
+                                </Template>
+                            </RadzenDataGridColumn>
+                        </Columns>
+                    </RadzenDataGrid>
+                }
+            </RadzenCard>
+        </RadzenColumn>
+
+        <RadzenColumn Size="4">
+            <RadzenCard>
+                <RadzenText TextStyle="TextStyle.H6" Text="Informace" Class="rz-mb-3" />
+                <RadzenText TextStyle="TextStyle.Body2" Text="Vlastní materiály se ukládají lokálně v prohlížeči a budou dostupné při výpočtu tepelného odporu." Class="rz-color-base-600 rz-mb-3" />
+                
+                <hr style="margin: 1rem 0;" />
+                
+                <RadzenText TextStyle="TextStyle.H6" Text="Doporučené hodnoty:" Class="rz-mb-2" />
+                <RadzenStack Orientation="Orientation.Vertical" Gap="0.25rem" Class="rz-mb-3">
+                    <RadzenText TextStyle="TextStyle.Body2" Text="Beton: 1.5-2.1 W/(m·K), μ = 70-150" />
+                    <RadzenText TextStyle="TextStyle.Body2" Text="Cihla: 0.3-0.8 W/(m·K), μ = 5-15" />
+                    <RadzenText TextStyle="TextStyle.Body2" Text="Dřevo: 0.12-0.18 W/(m·K), μ = 20-50" />
+                    <RadzenText TextStyle="TextStyle.Body2" Text="Minerální vata: 0.035-0.045 W/(m·K), μ = 1-2" />
+                    <RadzenText TextStyle="TextStyle.Body2" Text="Polystyren: 0.030-0.040 W/(m·K), μ = 30-100" />
+                </RadzenStack>
+                
+                <hr style="margin: 1rem 0;" />
+                
+                <RadzenText TextStyle="TextStyle.H6" Text="Faktor difúzního odporu μ:" Class="rz-mb-2" />
+                <RadzenStack Orientation="Orientation.Vertical" Gap="0.25rem">
+                    <RadzenText TextStyle="TextStyle.Body2" Text="μ = 1: Vzduch (referenční hodnota)" />
+                    <RadzenText TextStyle="TextStyle.Body2" Text="μ = 2-5: Vysoká paropropustnost" />
+                    <RadzenText TextStyle="TextStyle.Body2" Text="μ = 10-50: Střední paropropustnost" />
+                    <RadzenText TextStyle="TextStyle.Body2" Text="μ = 100+: Nízká paropropustnost" />
+                </RadzenStack>
+            </RadzenCard>
+        </RadzenColumn>
+    </RadzenRow>
+</RadzenStack>
+
+
+
+<!-- Modal pro přidání/editaci materiálu -->
+@if (showMaterialModal)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@(editingMaterial == null ? "Přidat materiál" : "Upravit materiál")</h5>
+                    <button type="button" class="btn-close" @onclick="HideMaterialDialog" title="Zavřít"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Název materiálu *</label>
+                                <input type="text" class="form-control" @bind="currentMaterial.Name" placeholder="Např. Cihla plná" />
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Kategorie</label>
+                                <select class="form-select" @bind="currentMaterial.Category">
+                                    <option value="">Vyberte kategorii</option>
+                                    <option value="Zdivo">Zdivo</option>
+                                    <option value="Beton">Beton</option>
+                                    <option value="Dřevo">Dřevo</option>
+                                    <option value="Izolace">Izolace</option>
+                                    <option value="Omítky">Omítky</option>
+                                    <option value="Jiné">Jiné</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    Tepelná vodivost λ [W/(m·K)] *
+                                    <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="ShowThermalConductivityInfo" title="Zobrazit informace o tepelné vodivosti">
+                                        <i class="bi bi-info-circle"></i>
+                                    </button>
+                                </label>
+                                <input type="number" class="form-control" @bind="currentMaterial.ThermalConductivity" 
+                                       step="0.001" min="0.001" max="10" placeholder="0.035" />
+                                <div class="form-text">Hodnota lambda - čím nižší, tím lepší izolace</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Hustota [kg/m³]</label>
+                                <input type="number" class="form-control" @bind="currentMaterial.Density" 
+                                       step="1" min="0" max="3000" placeholder="1000" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    Měrná tepelná kapacita [J/(kg·K)]
+                                    <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="ShowSpecificHeatCapacityInfo" title="Zobrazit informace o měrné tepelné kapacitě">
+                                        <i class="bi bi-info-circle"></i>
+                                    </button>
+                                </label>
+                                <input type="number" class="form-control" @bind="currentMaterial.SpecificHeatCapacity" 
+                                       step="1" min="0" max="3000" placeholder="1000" />
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Cena [Kč/m³]</label>
+                                <input type="number" class="form-control" @bind="currentMaterial.PricePerM3" 
+                                       step="1" min="0" max="100000" placeholder="0" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    Faktor difúzního odporu μ [-]
+                                    <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="ShowDiffusionResistanceInfo" title="Zobrazit informace o faktoru difúzního odporu">
+                                        <i class="bi bi-info-circle"></i>
+                                    </button>
+                                </label>
+                                <input type="number" class="form-control" @bind="currentMaterial.DiffusionResistanceFactor" 
+                                       step="0.1" min="0" max="1000" placeholder="1" />
+                                <div class="form-text">Bezrozměrný faktor - čím vyšší, tím horší paropropustnost</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Výrobce</label>
+                                <input type="text" class="form-control" @bind="currentMaterial.Manufacturer" placeholder="Název výrobce" />
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Kód výrobku</label>
+                                <input type="text" class="form-control" @bind="currentMaterial.ProductCode" placeholder="Kód výrobku" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="HideMaterialDialog">Zrušit</button>
+                    <button type="button" class="btn btn-primary" @onclick="SaveMaterial">Uložit</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+<!-- Modal pro informace o tepelné vodivosti -->
+@if (showThermalConductivityInfoModal)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-thermometer-half"></i> Informace o tepelné vodivosti (λ)
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="HideThermalConductivityInfo" title="Zavřít"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6><i class="bi bi-question-circle"></i> Co je tepelná vodivost?</h6>
+                            <p class="text-muted">
+                                Tepelná vodivost (λ, lambda) je materiálová konstanta, která udává schopnost materiálu vést teplo. 
+                                Čím nižší hodnota, tím lepší tepelná izolace materiálu.
+                            </p>
+                            
+                            <h6><i class="bi bi-calculator"></i> Vzorec pro výpočet</h6>
+                            <div class="bg-light p-2 rounded">
+                                <small>
+                                    <strong>Tepelný odpor vrstvy:</strong><br/>
+                                    R = d / λ [m²K/W]<br/><br/>
+                                    <strong>Součinitel prostupu tepla:</strong><br/>
+                                    U = 1 / (Rsi + ΣR + Rse) [W/(m²·K)]<br/><br/>
+                                    Kde:<br/>
+                                    • d = tloušťka vrstvy [m]<br/>
+                                    • λ = součinitel tepelné vodivosti [W/(m·K)]<br/>
+                                    • Rsi = vnitřní povrchový odpor<br/>
+                                    • Rse = vnější povrchový odpor
+                                </small>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <h6><i class="bi bi-graph-up"></i> Typické hodnoty λ</h6>
+                            <div class="alert alert-info">
+                                <small>
+                                    <strong>Vzduch:</strong> 0.024 W/(m·K)<br/>
+                                    <strong>Minerální vata:</strong> 0.035-0.045 W/(m·K)<br/>
+                                    <strong>Polystyren:</strong> 0.030-0.040 W/(m·K)<br/>
+                                    <strong>Dřevo:</strong> 0.12-0.18 W/(m·K)<br/>
+                                    <strong>Cihla:</strong> 0.3-0.8 W/(m·K)<br/>
+                                    <strong>Beton:</strong> 1.5-2.1 W/(m·K)<br/>
+                                    <strong>Ocel:</strong> 50-60 W/(m·K)
+                                </small>
+                            </div>
+                            
+                            <h6><i class="bi bi-lightbulb"></i> Praktický význam</h6>
+                            <ul class="list-unstyled">
+                                <li>• <strong>Nízké λ:</strong> Lepší tepelná izolace</li>
+                                <li>• <strong>Vysoké λ:</strong> Horší tepelná izolace</li>
+                                <li>• <strong>Vliv na U-hodnotu:</strong> Nižší λ = nižší U</li>
+                                <li>• <strong>Energetická úspora:</strong> Lepší izolace = nižší náklady</li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <hr/>
+                    
+                    <div class="row">
+                        <div class="col-12">
+                            <h6><i class="bi bi-book"></i> Normy a doporučení</h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6>ČSN EN ISO 10456</h6>
+                                    <ul>
+                                        <li>Stanovení tepelných vlastností</li>
+                                        <li>Výpočtové hodnoty λ</li>
+                                        <li>Návrhové hodnoty λ</li>
+                                        <li>Konverzní faktory</li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6>Faktory ovlivňující λ</h6>
+                                    <ul>
+                                        <li>Vlhkost materiálu</li>
+                                        <li>Teplota materiálu</li>
+                                        <li>Stárnutí materiálu</li>
+                                        <li>Hustota materiálu</li>
+                                        <li>Struktura materiálu</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <hr/>
+                    
+                    <div class="row">
+                        <div class="col-12">
+                            <h6><i class="bi bi-exclamation-triangle"></i> Důležité poznámky</h6>
+                            <div class="alert alert-warning">
+                                <small>
+                                    <strong>Při zadávání hodnot:</strong><br/>
+                                    • Používejte výpočtové hodnoty λ podle ČSN EN ISO 10456<br/>
+                                    • Zohledněte vlhkostní režim materiálu<br/>
+                                    • Uvažujte stárnutí materiálu v čase<br/>
+                                    • Kontrolujte kvalitu provedení konstrukce
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="HideThermalConductivityInfo">Zavřít</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+<!-- Modal pro informace o měrné tepelné kapacitě -->
+@if (showSpecificHeatCapacityInfoModal)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-thermometer-snowflake"></i> Informace o měrné tepelné kapacitě
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="HideSpecificHeatCapacityInfo" title="Zavřít"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6><i class="bi bi-question-circle"></i> Co je měrná tepelná kapacita?</h6>
+                            <p class="text-muted">
+                                Měrná tepelná kapacita (c) je množství tepla potřebné k ohřátí 1 kg látky o 1 K. 
+                                Udává schopnost materiálu akumulovat teplo a ovlivňuje tepelnou setrvačnost konstrukce.
+                            </p>
+                            
+                            <h6><i class="bi bi-calculator"></i> Vzorec pro výpočet</h6>
+                            <div class="bg-light p-2 rounded">
+                                <small>
+                                    <strong>Tepelná kapacita skladby:</strong><br/>
+                                    C = Σ(ρ × c × d) [J/(m²·K)]<br/><br/>
+                                    <strong>Fázový posun:</strong><br/>
+                                    φ = C / (U × 3600) [hodin]<br/><br/>
+                                    Kde:<br/>
+                                    • ρ = hustota materiálu [kg/m³]<br/>
+                                    • c = měrná tepelná kapacita [J/(kg·K)]<br/>
+                                    • d = tloušťka vrstvy [m]<br/>
+                                    • U = součinitel prostupu tepla [W/(m²·K)]
+                                </small>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <h6><i class="bi bi-graph-up"></i> Typické hodnoty c</h6>
+                            <div class="alert alert-info">
+                                <small>
+                                    <strong>Vzduch:</strong> 1005 J/(kg·K)<br/>
+                                    <strong>Voda:</strong> 4186 J/(kg·K)<br/>
+                                    <strong>Dřevo:</strong> 1600-2400 J/(kg·K)<br/>
+                                    <strong>Cihla:</strong> 800-1000 J/(kg·K)<br/>
+                                    <strong>Beton:</strong> 1000-1200 J/(kg·K)<br/>
+                                    <strong>Minerální vata:</strong> 1030 J/(kg·K)<br/>
+                                    <strong>Polystyren:</strong> 1500 J/(kg·K)
+                                </small>
+                            </div>
+                            
+                            <h6><i class="bi bi-lightbulb"></i> Praktický význam</h6>
+                            <ul class="list-unstyled">
+                                <li>• <strong>Vysoké c:</strong> Lepší akumulace tepla</li>
+                                <li>• <strong>Nízké c:</strong> Rychlejší reakce na změny</li>
+                                <li>• <strong>Vliv na fázový posun:</strong> Vyšší c = delší fázový posun</li>
+                                <li>• <strong>Tepelná setrvačnost:</strong> Stabilizuje vnitřní teplotu</li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <hr/>
+                    
+                    <div class="row">
+                        <div class="col-12">
+                            <h6><i class="bi bi-book"></i> Normy a doporučení</h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6>ČSN EN ISO 13786</h6>
+                                    <ul>
+                                        <li>Tepelné vlastnosti stavebních komponent</li>
+                                        <li>Výpočet tepelné kapacitě</li>
+                                        <li>Fázový posun a útlum</li>
+                                        <li>Dynamické tepelné vlastnosti</li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6>Faktory ovlivňující c</h6>
+                                    <ul>
+                                        <li>Vlhkost materiálu</li>
+                                        <li>Teplota materiálu</li>
+                                        <li>Struktura materiálu</li>
+                                        <li>Chemické složení</li>
+                                        <li>Fázové přeměny</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="HideSpecificHeatCapacityInfo">Zavřít</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+<!-- Modal pro informace o faktoru difúzního odporu -->
+@if (showDiffusionResistanceInfoModal)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-droplet-half"></i> Informace o faktoru difúzního odporu (μ)
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="HideDiffusionResistanceInfo" title="Zavřít"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6><i class="bi bi-question-circle"></i> Co je faktor difúzního odporu?</h6>
+                            <p class="text-muted">
+                                Faktor difúzního odporu (μ) udává, kolikrát je materiál méně paropropustný než vzduch. 
+                                Je to bezrozměrný faktor používaný při výpočtu rosného bodu a kondenzace.
+                            </p>
+                            
+                            <h6><i class="bi bi-calculator"></i> Vzorec pro výpočet</h6>
+                            <div class="bg-light p-2 rounded">
+                                <small>
+                                    <strong>Difúzní odpor vrstvy:</strong><br/>
+                                    sd = μ × d [m]<br/><br/>
+                                    <strong>Celkový difúzní odpor:</strong><br/>
+                                    μd = Σsd [m]<br/><br/>
+                                    Kde:<br/>
+                                    • μ = faktor difúzního odporu [-]<br/>
+                                    • d = tloušťka vrstvy [m]<br/>
+                                    • sd = difúzní odpor vrstvy [m]
+                                </small>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <h6><i class="bi bi-graph-up"></i> Typické hodnoty μ</h6>
+                            <div class="alert alert-info">
+                                <small>
+                                    <strong>Vzduch:</strong> 1 (referenční hodnota)<br/>
+                                    <strong>Minerální vata:</strong> 1-2<br/>
+                                    <strong>Dřevo:</strong> 20-50<br/>
+                                    <strong>Cihla:</strong> 5-15<br/>
+                                    <strong>Beton:</strong> 70-150<br/>
+                                    <strong>Fólie (parozábrana):</strong> 1000-100000<br/>
+                                    <strong>Ocel:</strong> ∞ (nepropustné)
+                                </small>
+                            </div>
+                            
+                            <h6><i class="bi bi-lightbulb"></i> Praktický význam</h6>
+                            <ul class="list-unstyled">
+                                <li>• <strong>μ = 1:</strong> Stejná paropropustnost jako vzduch</li>
+                                <li>• <strong>μ &lt; 10:</strong> Vysoká paropropustnost</li>
+                                <li>• <strong>μ = 10-50:</strong> Střední paropropustnost</li>
+                                <li>• <strong>μ &gt; 100:</strong> Nízká paropropustnost</li>
+                                <li>• <strong>Vliv na kondenzaci:</strong> Vyšší μ = riziko kondenzace</li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <hr/>
+                    
+                    <div class="row">
+                        <div class="col-12">
+                            <h6><i class="bi bi-book"></i> Normy a doporučení</h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6>ČSN EN ISO 13788</h6>
+                                    <ul>
+                                        <li>Výpočet rosného bodu</li>
+                                        <li>Hygrotermické vlastnosti</li>
+                                        <li>Kondenzace v konstrukcích</li>
+                                        <li>Difúzní odpory materiálů</li>
+                                    </ul>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6>Faktory ovlivňující μ</h6>
+                                    <ul>
+                                        <li>Struktura materiálu</li>
+                                        <li>Vlhkost materiálu</li>
+                                        <li>Teplota materiálu</li>
+                                        <li>Stárnutí materiálu</li>
+                                        <li>Chemické složení</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <hr/>
+                    
+                    <div class="row">
+                        <div class="col-12">
+                            <h6><i class="bi bi-exclamation-triangle"></i> Důležité poznámky</h6>
+                            <div class="alert alert-warning">
+                                <small>
+                                    <strong>Při projektování:</strong><br/>
+                                    • Zohledněte μ při návrhu skladby zdi<br/>
+                                    • Vyšší μ zvyšuje riziko kondenzace<br/>
+                                    • Parozábrany mají velmi vysoké μ<br/>
+                                    • Kontrolujte vlhkostní režim konstrukce
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="HideDiffusionResistanceInfo">Zavřít</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    private List<Material> customMaterials = new();
+    private bool showMaterialModal = false;
+    private bool showThermalConductivityInfoModal = false;
+    private bool showSpecificHeatCapacityInfoModal = false;
+    private bool showDiffusionResistanceInfoModal = false;
+    private Material? editingMaterial = null;
+    private Material currentMaterial = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCustomMaterials();
+        StateHasChanged();
+    }
+
+    private async Task LoadCustomMaterials()
+    {
+        try
+        {
+            var materialsJson = await JS.InvokeAsync<string>("loadFromLocalStorage", "custom_materials");
+            await JS.InvokeVoidAsync("console.log", $"Načtený JSON: {materialsJson}");
+            
+            if (!string.IsNullOrEmpty(materialsJson))
+            {
+                var materials = System.Text.Json.JsonSerializer.Deserialize<List<Material>>(materialsJson);
+                customMaterials = materials ?? new List<Material>();
+                await JS.InvokeVoidAsync("console.log", $"Načteno materiálů: {customMaterials.Count}");
+            }
+            else
+            {
+                customMaterials = new List<Material>();
+                await JS.InvokeVoidAsync("console.log", "Žádné materiály v localStorage");
+            }
+            
+            // Vynutit aktualizaci UI
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"Chyba při načítání materiálů: {ex.Message}");
+        }
+    }
+
+    private async Task SaveCustomMaterials()
+    {
+        try
+        {
+            var materialsJson = System.Text.Json.JsonSerializer.Serialize(customMaterials);
+            await JS.InvokeVoidAsync("console.log", $"Ukládám JSON: {materialsJson}");
+            await JS.InvokeVoidAsync("saveToLocalStorage", "custom_materials", materialsJson);
+            await JS.InvokeVoidAsync("console.log", $"Uloženo {customMaterials.Count} materiálů");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"Chyba při ukládání materiálů: {ex.Message}");
+        }
+    }
+
+    private void ShowAddDialog()
+    {
+        editingMaterial = null;
+        currentMaterial = new Material();
+        showMaterialModal = true;
+        StateHasChanged();
+    }
+
+    private void EditMaterial(Material material)
+    {
+        editingMaterial = material;
+        currentMaterial = new Material
+        {
+            Name = material.Name,
+            ThermalConductivity = material.ThermalConductivity,
+            Density = material.Density,
+            SpecificHeatCapacity = material.SpecificHeatCapacity,
+            Category = material.Category,
+            Manufacturer = material.Manufacturer,
+            ProductCode = material.ProductCode,
+            PricePerM3 = material.PricePerM3,
+            DiffusionResistanceFactor = material.DiffusionResistanceFactor
+        };
+        showMaterialModal = true;
+        StateHasChanged();
+    }
+
+    private void HideMaterialDialog()
+    {
+        showMaterialModal = false;
+        StateHasChanged();
+    }
+
+    private async Task SaveMaterial()
+    {
+        if (string.IsNullOrWhiteSpace(currentMaterial.Name) || currentMaterial.ThermalConductivity <= 0)
+        {
+            await JS.InvokeVoidAsync("alert", "Název materiálu a tepelná vodivost jsou povinné!");
+            return;
+        }
+
+        if (editingMaterial == null)
+        {
+            // Přidat nový materiál
+            customMaterials.Add(currentMaterial);
+        }
+        else
+        {
+            // Upravit existující materiál
+            var index = customMaterials.IndexOf(editingMaterial);
+            if (index >= 0)
+            {
+                customMaterials[index] = currentMaterial;
+            }
+        }
+
+        await SaveCustomMaterials();
+        // NENÍ potřeba znovu načítat, protože customMaterials už obsahuje aktuální data
+        HideMaterialDialog();
+        StateHasChanged();
+    }
+
+    private async Task DeleteMaterial(Material material)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", $"Opravdu chcete smazat materiál '{material.Name}'?");
+        if (confirmed)
+        {
+            customMaterials.Remove(material);
+            await SaveCustomMaterials();
+            // NENÍ potřeba znovu načítat, protože customMaterials už obsahuje aktuální data
+            StateHasChanged();
+        }
+    }
+
+    private void ShowThermalConductivityInfo()
+    {
+        showThermalConductivityInfoModal = true;
+        StateHasChanged();
+    }
+
+    private void HideThermalConductivityInfo()
+    {
+        showThermalConductivityInfoModal = false;
+        StateHasChanged();
+    }
+
+    private void ShowSpecificHeatCapacityInfo()
+    {
+        showSpecificHeatCapacityInfoModal = true;
+        StateHasChanged();
+    }
+
+    private void HideSpecificHeatCapacityInfo()
+    {
+        showSpecificHeatCapacityInfoModal = false;
+        StateHasChanged();
+    }
+
+    private void ShowDiffusionResistanceInfo()
+    {
+        showDiffusionResistanceInfoModal = true;
+        StateHasChanged();
+    }
+
+    private void HideDiffusionResistanceInfo()
+    {
+        showDiffusionResistanceInfoModal = false;
+        StateHasChanged();
+    }
+} 

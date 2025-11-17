@@ -1,0 +1,290 @@
+@using ThermalCalculator.Wasm.Models
+@inject IJSRuntime JSRuntime
+
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">Grafy tepelných vlastností</h5>
+    </div>
+    <div class="card-body">
+        <p class="text-info">Počet vrstev v grafu: @(WallAssembly?.Layers?.Count ?? 0)</p>
+
+        @if (WallAssembly?.Layers?.Count > 0)
+        {
+            <div class="row">
+                <div class="col-md-6">
+                    <canvas id="thermalResistanceChart" width="400" height="300"></canvas>
+                </div>
+                <div class="col-md-6">
+                    <canvas id="thicknessChart" width="400" height="300"></canvas>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-md-6">
+                    <canvas id="costChart" width="400" height="300"></canvas>
+                </div>
+                <div class="col-md-6">
+                    <canvas id="thermalCapacityChart" width="400" height="300"></canvas>
+                </div>
+            </div>
+        }
+        else
+        {
+            <p class="text-muted">Přidejte vrstvy materiálů pro zobrazení grafů.</p>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public WallAssembly? WallAssembly { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (WallAssembly?.Layers?.Count > 0)
+        {
+            await CreateCharts();
+        }
+    }
+
+    private async Task CreateCharts()
+    {
+        if (WallAssembly?.Layers == null) 
+        {
+            return;
+        }
+
+        var layers = WallAssembly.Layers.Where(l => l.Material.ThermalConductivity > 0).ToList();
+        
+        if (layers.Count == 0) return;
+
+        try
+        {
+            // Graf tepelných odporů
+            await CreateThermalResistanceChart(layers);
+            
+            // Graf tlouštěk
+            await CreateThicknessChart(layers);
+            
+            // Graf cen
+            await CreateCostChart(layers);
+            
+            // Graf tepelných kapacit
+            await CreateThermalCapacityChart(layers);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Chyba při vytváření grafů: {ex.Message}");
+        }
+    }
+
+    private async Task CreateThermalResistanceChart(List<WallLayer> layers)
+    {
+        var labels = layers.Select(l => l.Material.Name).ToArray();
+        var data = layers.Select(l => l.ThermalResistance).ToArray();
+
+        var config = new
+        {
+            type = "bar",
+            data = new
+            {
+                labels = labels,
+                datasets = new[]
+                {
+                    new
+                    {
+                        label = "Tepelný odpor (m²·K/W)",
+                        data = data,
+                        backgroundColor = "rgba(54, 162, 235, 0.8)",
+                        borderColor = "rgba(54, 162, 235, 1)",
+                        borderWidth = 1
+                    }
+                }
+            },
+            options = new
+            {
+                responsive = true,
+                plugins = new
+                {
+                    title = new
+                    {
+                        display = true,
+                        text = "Tepelné odpory vrstev"
+                    }
+                },
+                scales = new
+                {
+                    y = new
+                    {
+                        beginAtZero = true,
+                        title = new
+                        {
+                            display = true,
+                            text = "Tepelný odpor (m²·K/W)"
+                        }
+                    }
+                }
+            }
+        };
+
+        await JSRuntime.InvokeVoidAsync("createChart", "thermalResistanceChart", config);
+    }
+
+    private async Task CreateThicknessChart(List<WallLayer> layers)
+    {
+        var labels = layers.Select(l => l.Material.Name).ToArray();
+        var data = layers.Select(l => l.Thickness).ToArray();
+
+        var config = new
+        {
+            type = "doughnut",
+            data = new
+            {
+                labels = labels,
+                datasets = new[]
+                {
+                    new
+                    {
+                        data = data,
+                        backgroundColor = new[]
+                        {
+                            "rgba(255, 99, 132, 0.8)",
+                            "rgba(54, 162, 235, 0.8)",
+                            "rgba(255, 205, 86, 0.8)",
+                            "rgba(75, 192, 192, 0.8)",
+                            "rgba(153, 102, 255, 0.8)",
+                            "rgba(255, 159, 64, 0.8)"
+                        }
+                    }
+                }
+            },
+            options = new
+            {
+                responsive = true,
+                plugins = new
+                {
+                    title = new
+                    {
+                        display = true,
+                        text = "Rozložení tlouštěk vrstev"
+                    },
+                    legend = new
+                    {
+                        position = "bottom"
+                    }
+                }
+            }
+        };
+
+        await JSRuntime.InvokeVoidAsync("createChart", "thicknessChart", config);
+    }
+
+    private async Task CreateCostChart(List<WallLayer> layers)
+    {
+        var labels = layers.Select(l => l.Material.Name).ToArray();
+        var data = layers.Where(l => l.Material.PricePerM3 > 0)
+                        .Select(l => (l.Thickness / 1000.0) * l.Material.PricePerM3).ToArray();
+
+        if (data.Length == 0) return;
+
+        var config = new
+        {
+            type = "bar",
+            data = new
+            {
+                labels = labels.Where((_, i) => layers[i].Material.PricePerM3 > 0).ToArray(),
+                datasets = new[]
+                {
+                    new
+                    {
+                        label = "Cena za m² (Kč)",
+                        data = data,
+                        backgroundColor = "rgba(75, 192, 192, 0.8)",
+                        borderColor = "rgba(75, 192, 192, 1)",
+                        borderWidth = 1
+                    }
+                }
+            },
+            options = new
+            {
+                responsive = true,
+                plugins = new
+                {
+                    title = new
+                    {
+                        display = true,
+                        text = "Ceny vrstev za m²"
+                    }
+                },
+                scales = new
+                {
+                    y = new
+                    {
+                        beginAtZero = true,
+                        title = new
+                        {
+                            display = true,
+                            text = "Cena (Kč/m²)"
+                        }
+                    }
+                }
+            }
+        };
+
+        await JSRuntime.InvokeVoidAsync("createChart", "costChart", config);
+    }
+
+    private async Task CreateThermalCapacityChart(List<WallLayer> layers)
+    {
+        var labels = layers.Select(l => l.Material.Name).ToArray();
+        var data = layers.Where(l => l.Material.Density > 0)
+                        .Select(l => (l.Thickness / 1000.0) * l.Material.Density * l.Material.SpecificHeatCapacity).ToArray();
+
+        if (data.Length == 0) return;
+
+        var config = new
+        {
+            type = "line",
+            data = new
+            {
+                labels = labels.Where((_, i) => layers[i].Material.Density > 0).ToArray(),
+                datasets = new[]
+                {
+                    new
+                    {
+                        label = "Tepelná kapacita (J/(m²·K))",
+                        data = data,
+                        borderColor = "rgba(255, 99, 132, 1)",
+                        backgroundColor = "rgba(255, 99, 132, 0.2)",
+                        tension = 0.1
+                    }
+                }
+            },
+            options = new
+            {
+                responsive = true,
+                plugins = new
+                {
+                    title = new
+                    {
+                        display = true,
+                        text = "Tepelné kapacity vrstev"
+                    }
+                },
+                scales = new
+                {
+                    y = new
+                    {
+                        beginAtZero = true,
+                        title = new
+                        {
+                            display = true,
+                            text = "Tepelná kapacita (J/(m²·K))"
+                        }
+                    }
+                }
+            }
+        };
+
+        await JSRuntime.InvokeVoidAsync("createChart", "thermalCapacityChart", config);
+    }
+} 

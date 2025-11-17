@@ -1,0 +1,2255 @@
+@page "/thermal-resistance"
+@using ThermalCalculator.Wasm.Models
+@using ThermalCalculator.Wasm.Services
+@using ThermalCalculator.Wasm.Components
+@using Microsoft.JSInterop
+@using static ThermalCalculator.Wasm.Services.ValidationHelper
+@using static ThermalCalculator.Wasm.Models.WallAssemblyThermalBridgeExtensions
+@using System.Web
+@inject MaterialService MaterialService
+@inject WallAssemblyService WallAssemblyService
+@inject PdfExportService PdfExportService
+@inject WallTemplateService TemplateService
+@inject StatisticsService StatisticsService
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
+
+<PageTitle>Výpočet tepelného odporu zdi</PageTitle>
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Výpočet tepelného odporu zdi</h1>
+        <div class="btn-group">
+            <a href="/custom-materials" class="btn btn-outline-secondary">
+                <i class="bi bi-puzzle-piece"></i> Vlastní materiály
+            </a>
+            <a href="/examples" class="btn btn-outline-primary">
+                <i class="bi bi-collection"></i> Zobrazit příklady
+            </a>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        Skladba zdi
+                        <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="ShowThermalConductivityInfo" title="Zobrazit informace o tepelné vodivosti">
+                            <i class="bi bi-info-circle"></i>
+                        </button>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Filtr podle kategorie</label>
+                            <select class="form-select" @onchange="@(e => OnCategoryFilterChanged(e.Value?.ToString()))">
+                                <option value="">Všechny kategorie</option>
+                                @foreach (var category in categories)
+                                {
+                                    <option value="@category" selected="@(selectedCategory == category)">@category</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <span class="text-muted">
+                                @if (!string.IsNullOrEmpty(selectedCategory))
+                                {
+                                    @($"Zobrazeno: {GetFilteredMaterials().Count} materiálů z kategorie '{selectedCategory}'")
+                                }
+                                else
+                                {
+                                    @($"Zobrazeno: {availableMaterials.Count} materiálů")
+                                }
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <p class="text-info">Počet vrstev: @wallAssembly.Layers.Count | Uložené skladby: @savedAssemblies.Count</p>
+
+                    @if (wallAssembly.Layers.Count == 0)
+                    {
+                        <p class="text-muted">Přidejte vrstvy materiálů pro výpočet tepelného odporu.</p>
+                    }
+                    
+                    @if (wallAssembly.Layers.Count > 0)
+                    {
+                        <div class="mb-3">
+                            <small class="text-muted">
+                                <i class="bi bi-arrows-move me-1"></i>
+                                Tip: Přetahujte vrstvy pro změnu pořadí (vnitřní strana → vnější strana)
+                            </small>
+                        </div>
+                    }
+
+                    @for (int i = 0; i < wallAssembly.Layers.Count; i++)
+                    {
+                        var layer = wallAssembly.Layers[i];
+                        var index = i;
+                        
+                        <div class="layer-row row mb-3 p-3 border rounded" 
+                             draggable="true"
+                             @ondragstart="@(e => OnDragStart(e, index))"
+                             @ondragend="@(e => OnDragEnd(e))"
+                             @ondragenter="@(e => OnDragEnter(e, index))"
+                             @ondragover="@(e => OnDragOver(e, index))" 
+                             @ondragover:preventDefault="true"
+                             @ondragleave="@(e => OnDragLeave(e, index))"
+                             @ondrop="@(e => OnDrop(e, index))"
+                             @ondrop:preventDefault="true">
+                             
+                            <!-- Indikátor pořadí vrstvy -->
+                            <div class="layer-order">@(i + 1)</div>
+                            
+                            <!-- Drag handle -->
+                            <div class="col-auto d-flex align-items-center">
+                                <div class="drag-handle">
+                                    <i class="bi bi-grip-vertical"></i>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-3">
+                                <label class="form-label">Materiál</label>
+                                <select class="form-select" @onchange="@(e => OnMaterialChanged(index, e.Value?.ToString()))">
+                                    <option value="">Vyberte materiál</option>
+                                    @if (string.IsNullOrEmpty(selectedCategory))
+                                    {
+                                        @foreach (var category in categories)
+                                        {
+                                            <optgroup label="@category">
+                                                @foreach (var material in GetMaterialsByCategory(category))
+                                                {
+                                                    <option value="@material.Name" selected="@(layer.Material.Name == material.Name)">@material.Name (@material.Manufacturer, @material.PricePerM3 Kč/m³)</option>
+                                                }
+                                            </optgroup>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        @* Zobrazit aktuálně vybraný materiál, i když není ve filtru *@
+                                        @if (!string.IsNullOrEmpty(layer.Material.Name) && !GetFilteredMaterials().Any(m => m.Name == layer.Material.Name))
+                                        {
+                                            <option value="@layer.Material.Name" selected="true">@layer.Material.Name (jiná kategorie)</option>
+                                        }
+                                        @foreach (var material in GetFilteredMaterials())
+                                        {
+                                            <option value="@material.Name" selected="@(layer.Material.Name == material.Name)">@material.Name (@material.Manufacturer, @material.PricePerM3 Kč/m³)</option>
+                                        }
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <ValidatedInput 
+                                    Label="Tloušťka"
+                                    Value="@GetThicknessString(layer)"
+                                    ValueChanged="@(value => OnThicknessChanged(index, value))"
+                                    InputType="number"
+                                    Unit="mm"
+                                    Step="1"
+                                    Min="1"
+                                    Max="1000"
+                                    IsRequired="true"
+                                    Tooltip="Tloušťka vrstvy materiálu v milimetrech"
+                                    CustomValidator="@(value => ValidateThickness(layer, value))"
+                                    ContainerClass="mb-0" />
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Tepelný odpor</label>
+                                <div class="form-control-plaintext">
+                                    @if (layer.Material.ThermalConductivity > 0 && layer.Thickness > 0)
+                                    {
+                                        @($"{layer.ThermalResistance:F3} m²·K/W")
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">-</span>
+                                    }
+                                </div>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">μ [-]</label>
+                                <div class="form-control-plaintext">
+                                    @if (layer.Material.DiffusionResistanceFactor > 0)
+                                    {
+                                        @($"{layer.Material.DiffusionResistanceFactor:F1}")
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">-</span>
+                                    }
+                                </div>
+                            </div>
+                            <div class="col-md-1 d-flex align-items-end">
+                                <button type="button" class="btn btn-danger btn-sm" @onclick="() => RemoveLayer(index)" title="Smazat vrstvu">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    }
+                    
+                    <div class="d-flex gap-2 mb-3 flex-wrap">
+                        <button type="button" class="btn btn-primary" @onclick="AddLayer" title="Přidat novou vrstvu">
+                            <i class="bi bi-plus"></i> Přidat vrstvu (@wallAssembly.Layers.Count)
+                        </button>
+
+                        <button type="button" class="btn btn-outline-primary" @onclick="NavigateToExamples" title="Zobrazit rychlé šablony">
+                            <i class="bi bi-lightning-charge"></i> Rychlé šablony
+                        </button>
+
+                        <button type="button" class="btn btn-outline-info" @onclick="NavigateToExamples" title="Zobrazit příklady skladeb">
+                            <i class="bi bi-collection"></i> Příklady skladeb
+                        </button>
+
+                        <button type="button" class="btn btn-secondary" @onclick="NewAssembly" title="Vytvořit novou skladbu">
+                            <i class="bi bi-plus-circle"></i> Nová skladba
+                        </button>
+
+                        <button type="button" class="btn btn-success" @onclick="ShowSaveDialog" title="Uložit aktuální skladbu">
+                            <i class="bi bi-save"></i> Uložit skladbu
+                        </button>
+
+                        <button type="button" class="btn btn-info" @onclick="async () => await ShowLoadDialog()" title="Načíst uloženou skladbu">
+                            <i class="bi bi-folder-open"></i> Načíst skladbu
+                        </button>
+
+                        <button type="button" class="btn btn-warning" @onclick="async () => await ExportToPdf()" disabled="@(wallAssembly.Layers.Count == 0)" title="Exportovat do PDF">
+                            <i class="bi bi-file-pdf"></i> Export do PDF
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        @if (!string.IsNullOrEmpty(currentAssemblyName))
+                        {
+                            <span class="text-primary">@currentAssemblyName</span>
+                            <small class="text-muted"> - Výsledky</small>
+                        }
+                        else
+                        {
+                            <text>Výsledky</text>
+                        }
+                    </h5>
+                </div>
+                <div class="card-body">
+                    @if (wallAssembly.Layers.Count > 0)
+                    {
+                        <div class="mb-3">
+                            <label class="form-label">Celková tloušťka skladby</label>
+                            <div class="h4 text-info">
+                                @GetTotalThickness() mm
+                            </div>
+                        </div>
+                    }
+                    
+                    <div class="mb-3">
+                        <label class="form-label">
+                            Celkový tepelný odpor (R)
+                            <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="ShowThermalResistanceInfo" title="Zobrazit informace o tepelném odporu">
+                                <i class="bi bi-info-circle"></i>
+                            </button>
+                        </label>
+                        <div class="h4 text-primary">
+                            @($"{wallAssembly.TotalThermalResistance:F3} m²·K/W")
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">
+                            Součinitel prostupu tepla (U)
+                            <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="ShowThermalTransmittanceInfo" title="Zobrazit informace o součiniteli prostupu tepla">
+                                <i class="bi bi-info-circle"></i>
+                            </button>
+                        </label>
+                        <div class="h4 text-success">
+                            @($"{wallAssembly.ThermalTransmittance:F3} W/(m²·K)")
+                        </div>
+                    </div>
+                    
+                    @if (wallAssembly.Layers.Count > 0)
+                    {
+                        var dewPointCalculation = wallAssembly.CalculateDewPoint();
+                        <div class="mb-3">
+                            <label class="form-label">
+                                Analýza kondenzace
+                                <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="ShowCondensationAnalysisInfo" title="Zobrazit informace o analýze kondenzace">
+                                    <i class="bi bi-info-circle"></i>
+                                </button>
+                            </label>
+                            <div class="d-flex align-items-center">
+                                <div class="h5 @(dewPointCalculation.HasCondensation ? "text-danger" : "text-success") me-3">
+                                    @(dewPointCalculation.HasCondensation ? "⚠️ Riziko kondenzace" : "✅ Bez rizika kondenzace")
+                                </div>
+                                <button type="button" class="btn btn-sm btn-outline-info" @onclick="ShowCondensationAnalysis" title="Zobrazit detailní analýzu kondenzace">
+                                    <i class="bi bi-graph-up"></i> Detailní analýza
+                                </button>
+                            </div>
+                            <small class="text-muted">
+                                Vnitřní: @($"{wallAssembly.InternalTemperature:F1}°C, {wallAssembly.InternalHumidity:F0}% vlhkost") | Vnější: @($"{wallAssembly.ExternalTemperature:F1}°C, {wallAssembly.ExternalHumidity:F0}% vlhkost")
+                            </small>
+                        </div>
+                    }
+                    
+                    @* Validační panel *@
+                    @if (wallAssembly.Layers.Count > 0)
+                    {
+                        var validationResults = ValidationHelper.ValidateWallAssembly(wallAssembly);
+                        @if (validationResults.Any())
+                        {
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-shield-check me-2"></i>Validace konstrukce
+                                </label>
+                                <div class="validation-panel">
+                                    @foreach (var result in validationResults.OrderByDescending(r => r.Severity))
+                                    {
+                                        <div class="alert alert-@GetValidationAlertClass(result.Severity) py-2 mb-2" role="alert">
+                                            <i class="@ValidationHelper.GetSeverityIcon(result.Severity) me-2"></i>
+                                            <strong>@result.Message</strong>
+                                            @if (!string.IsNullOrEmpty(result.Details))
+                                            {
+                                                <br><small>@result.Details</small>
+                                            }
+                                            @if (!string.IsNullOrEmpty(result.Suggestion))
+                                            {
+                                                <br><small class="text-muted"><i class="bi bi-lightbulb me-1"></i>@result.Suggestion</small>
+                                            }
+                                            @if (result.Category == ValidationCategory.CzechStandards)
+                                            {
+                                                <br><small class="text-muted"><i class="bi bi-info-circle me-1"></i>Podle ČSN 73 0540-2</small>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    }
+                    
+                    <hr />
+                    
+                    <div class="mb-3">
+                        <label class="form-label">
+                            Klimatické podmínky
+                            <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="ShowClimateConditionsInfo" title="Zobrazit informace o klimatických podmínkách">
+                                <i class="bi bi-info-circle"></i>
+                            </button>
+                        </label>
+                        <div class="row">
+                            <div class="col-6">
+                                <small class="text-muted">Vnitřní prostředí</small>
+                                <div class="input-group input-group-sm mb-2">
+                                    <input type="number" class="form-control" @bind="wallAssembly.InternalTemperature" @bind:after="StateHasChanged" 
+                                           step="0.1" min="-10" max="40" />
+                                    <span class="input-group-text">°C</span>
+                                </div>
+                                <div class="input-group input-group-sm">
+                                    <input type="number" class="form-control" @bind="wallAssembly.InternalHumidity" @bind:after="StateHasChanged"
+                                           step="1" min="20" max="90" />
+                                    <span class="input-group-text">%</span>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <small class="text-muted">Vnější prostředí</small>
+                                <div class="input-group input-group-sm mb-2">
+                                    <input type="number" class="form-control" @bind="wallAssembly.ExternalTemperature" @bind:after="StateHasChanged"
+                                           step="0.1" min="-30" max="20" />
+                                    <span class="input-group-text">°C</span>
+                                </div>
+                                <div class="input-group input-group-sm">
+                                    <input type="number" class="form-control" @bind="wallAssembly.ExternalHumidity" @bind:after="StateHasChanged"
+                                           step="1" min="40" max="100" />
+                                    <span class="input-group-text">%</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <button type="button" class="btn btn-sm btn-outline-primary" @onclick="ResetClimateConditions" title="Obnovit výchozí klimatické podmínky podle ČSN">
+                                <i class="bi bi-arrow-clockwise"></i> Výchozí hodnoty (ČSN)
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Hodnocení</label>
+                        <div class="h5 @GetRatingClass(wallAssembly.ThermalTransmittance)">
+                            @GetRating(wallAssembly.ThermalTransmittance)
+                        </div>
+                    </div>
+                    
+                    @* Pokročilé výpočty *@
+                    @if (wallAssembly.Layers.Count > 0)
+                    {
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h6 class="mb-0">
+                                    <i class="bi bi-gear me-2"></i>Pokročilé výpočty
+                                    <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="ShowAdvancedCalculationsInfo" title="Zobrazit informace o pokročilých výpočtech">
+                                        <i class="bi bi-info-circle"></i>
+                                    </button>
+                                </h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <h6>Dynamické tepelné vlastnosti</h6>
+                                        
+                                        <div class="mb-2">
+                                            <label class="form-label">Teplotní útlum ν</label>
+                                            <div class="h6 @GetThermalInertiaClass(wallAssembly.TemperatureDamping)">
+                                                @($"{wallAssembly.TemperatureDamping:F1}")
+                                                <small class="text-muted">[-]</small>
+                                            </div>
+                                            <small class="text-muted">@GetThermalInertiaRating(wallAssembly.GetThermalInertiaRating())</small>
+                                        </div>
+                                        
+                                        <div class="mb-2">
+                                            <label class="form-label">Amplituda dekremetu</label>
+                                            <div class="h6 text-success">
+                                                @($"{wallAssembly.AmplitudeDecrement:F1} %")
+                                            </div>
+                                            <small class="text-muted">Snížení amplitudy teplotní vlny</small>
+                                        </div>
+                                        
+                                        <div class="mb-2">
+                                            <label class="form-label">Dynamický fázový posun</label>
+                                            <div class="h6 text-info">
+                                                @($"{wallAssembly.DynamicPhaseShift:F1} hodin")
+                                            </div>
+                                            <small class="text-muted">Časové zpoždění teplotní vlny</small>
+                                        </div>
+                                        
+                                        <div class="mb-2">
+                                            <label class="form-label">Letní komfort</label>
+                                            <div class="h6 @GetSummerComfortClass(wallAssembly.GetSummerComfortRating())">
+                                                @GetSummerComfortRating(wallAssembly.GetSummerComfortRating())
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="col-md-6">
+                                        <h6>Lineární tepelné mostky</h6>
+                                        
+                                        <div class="mb-2">
+                                            <button type="button" class="btn btn-sm btn-outline-primary" @onclick="ShowThermalBridgesDialog" title="Nastavit tepelné mostky">
+                                                <i class="bi bi-plus-circle me-1"></i>Nastavit tepelné mostky
+                                            </button>
+                                        </div>
+                                        
+                                        @if (thermalBridges.Bridges.Any())
+                                        {
+                                            <div class="mb-2">
+                                                <label class="form-label">Korekce U-hodnoty</label>
+                                                <div class="h6 @GetThermalBridgeCriticalityClass()">
+                                                    +@($"{thermalBridges.UThermalBridgeCorrection:F3}") W/(m²·K)
+                                                </div>
+                                                <small class="text-muted">@GetThermalBridgeCriticalityText()</small>
+                                            </div>
+                                            
+                                            <div class="mb-2">
+                                                <label class="form-label">U s tepelnými mostky</label>
+                                                <div class="h6 @GetRatingClass(wallAssembly.GetUValueWithThermalBridges(thermalBridges))">
+                                                    @($"{wallAssembly.GetUValueWithThermalBridges(thermalBridges):F3}") W/(m²·K)
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="mb-2">
+                                                <small class="text-muted">
+                                                    Počet mostků: @thermalBridges.Bridges.Count(b => b.IsEnabled)
+                                                    <br>Celková ztráta: @($"{thermalBridges.TotalBridgeHeatLoss:F1}") W/K
+                                                </small>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="alert alert-info py-2">
+                                                <small>
+                                                    <i class="bi bi-info-circle me-1"></i>
+                                                    Tepelné mostky nejsou zahrnuty ve výpočtu
+                                                </small>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    
+                    @if (wallAssembly.Layers.Count > 0)
+                    {
+                        <div class="mb-3">
+                            <label class="form-label">Celkový difúzní odpor μd [m]</label>
+                            <div class="h5 text-info">
+                                @($"{wallAssembly.TotalDiffusionResistance:F1}")
+                            </div>
+                            <small class="text-muted">
+                                @GetDiffusionRating(wallAssembly.TotalDiffusionResistance)
+                            </small>
+                            @if (wallAssembly.Layers.All(l => l.Material.DiffusionResistanceFactor == 0))
+                            {
+                                <small class="text-warning">
+                                    <i class="bi bi-exclamation-triangle"></i> Pro přesný výpočet nastavte faktor difúzního odporu (μ) u materiálů
+                                </small>
+                            }
+                        </div>
+                    }
+                    
+                    <hr />
+                    
+                    <div class="mb-3">
+                        <label class="form-label">
+                            Povrchové odpory
+                            <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="ShowSurfaceResistanceInfo">
+                                <i class="bi bi-info-circle"></i>
+                            </button>
+                        </label>
+                        <div class="row">
+                            <div class="col-6">
+                                <small class="text-muted">Vnitřní (Rsi)</small>
+                                <div>@($"{wallAssembly.InternalSurfaceResistance:F3} m²·K/W")</div>
+                            </div>
+                            <div class="col-6">
+                                <small class="text-muted">Vnější (Rse)</small>
+                                <div>@($"{wallAssembly.ExternalSurfaceResistance:F3} m²·K/W")</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    @if (wallAssembly.Layers.Count > 0 && wallAssembly.Layers.Any(l => l.Material.Density > 0))
+                    {
+                        <hr />
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Tepelná kapacita skladby</label>
+                            <div class="h5 text-info">
+                                @($"{wallAssembly.ThermalCapacity:F0} J/(m²·K)")
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">
+                                Fázový posun
+                                <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="ShowPhaseShiftInfo">
+                                    <i class="bi bi-info-circle"></i>
+                                </button>
+                            </label>
+                            <div class="h5 text-warning">
+                                @($"{wallAssembly.PhaseShift:F1} hodin")
+                            </div>
+                        </div>
+                        
+                        @if (wallAssembly.TotalCost > 0)
+                        {
+                            <div class="mb-3">
+                                <label class="form-label">Celková cena za m²</label>
+                                <div class="h5 text-success">
+                                    @($"{wallAssembly.TotalCost:F0} Kč/m²")
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+            
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h6 class="mb-0">Předpisy ČR</h6>
+                </div>
+                <div class="card-body">
+                    <small>
+                        <strong>Požadavky dle ČSN 73 0540-2:</strong><br />
+                        • Obvodové zdi: U ≤ 0.30 W/(m²·K)<br />
+                        • Střechy: U ≤ 0.24 W/(m²·K)<br />
+                        • Podlahy: U ≤ 0.45 W/(m²·K)
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    @if (wallAssembly.Layers.Count > 0)
+    {
+        <div class="row mt-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">Tepelný odpor vrstev</h6>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="thermalResistanceChart" width="400" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">Tloušťka vrstev</h6>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="thicknessChart" width="400" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mt-4">
+            <div class="col-md-12">
+                <div class="row mb-3">
+                    <div class="col-md-8">
+                        <div class="alert alert-info">
+                            <h6><i class="bi bi-info-circle"></i> Jak číst graf:</h6>
+                            <ul class="mb-0">
+                                <li><strong>Červená křivka (Teplota):</strong> Skutečná teplota v jednotlivých bodech konstrukce</li>
+                                <li><strong>Modrá křivka (Rosný bod):</strong> Teplota, při které by se začala tvořit kondenzace</li>
+                                <li><strong>Riziko kondenzace:</strong> Když červená křivka klesne pod modrou, dochází ke kondenzaci</li>
+                                <li><strong>Osa X:</strong> Hloubka konstrukce od vnitřního povrchu (0 mm = vnitřek, max = vnějšek)</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="alert alert-secondary">
+                            <h6>Podmínky výpočtu:</h6>
+                            <ul class="mb-0">
+                                <li><strong>Vnitřní:</strong> @($"{wallAssembly.InternalTemperature:F1}°C, {wallAssembly.InternalHumidity:F0}% vlhkost")</li>
+                                <li><strong>Vnější:</strong> @($"{wallAssembly.ExternalTemperature:F1}°C, {wallAssembly.ExternalHumidity:F0}% vlhkost")</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">Analýza kondenzace - Teplotní profil</h6>
+                    </div>
+                    <div class="card-body">
+                        <div style="height: 400px; position: relative;">
+                            <canvas id="condensationChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 3D Vizualizace -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="bi bi-box me-2"></i>3D Vizualizace řezu zdí
+                            <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="Show3DVisualizationInfo">
+                                <i class="bi bi-info-circle"></i>
+                            </button>
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="alert alert-info mb-3">
+                            <i class="bi bi-cube"></i> <strong>Interaktivní 3D vizualizace tepelných vlastností</strong>
+                            <br><small class="text-muted">
+                                Zobrazuje řez stěnou s teplotními gradienty, kondenzačními zónami a materiálovými vlastnostmi. 
+                                Ideální pro analýzu tepelně technických parametrů podle ČSN 73 0540-2.
+                            </small>
+                        </div>
+                        <WallVisualization3D WallAssembly="wallAssembly" OnError="Handle3DVisualizationError" />
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private WallAssembly wallAssembly = new();
+    private List<Material> availableMaterials = new();
+    private List<string> categories = new();
+    private string selectedCategory = string.Empty;
+    private List<SavedWallAssembly> savedAssemblies = new();
+    private ThermalBridgeCollection thermalBridges = new();
+    private DotNetObjectReference<ThermalResistance>? selfReference;
+    private string? currentAssemblyName = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        selfReference = DotNetObjectReference.Create(this);
+        availableMaterials = MaterialService.GetCommonMaterials();
+        categories = MaterialService.GetCategories();
+        savedAssemblies = await GetSavedAssembliesFromLocalStorage();
+        await LoadCustomMaterials();
+        
+        // Načtení příkladu z URL parametru
+        await LoadExampleFromUrlParameters();
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        selfReference?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    private async Task LoadExampleFromUrlParameters()
+    {
+        try
+        {
+            var uri = new Uri(Navigation.Uri);
+            var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+            var exampleParam = query["example"];
+
+            if (!string.IsNullOrEmpty(exampleParam))
+            {
+                var decodedJson = Uri.UnescapeDataString(exampleParam);
+                var layers = System.Text.Json.JsonSerializer.Deserialize<List<WallLayer>>(decodedJson);
+                
+                if (layers != null && layers.Any())
+                {
+                    // Vyčistíme současné vrstvy
+                    wallAssembly.Layers.Clear();
+                    
+                    // Přidáme vrstvy z příkladu
+                    foreach (var layer in layers)
+                    {
+                        // Najdeme materiál v dostupných materiálech
+                        var material = availableMaterials.FirstOrDefault(m => m.Name == layer.Material.Name);
+                        if (material != null)
+                        {
+                            wallAssembly.Layers.Add(new WallLayer
+                            {
+                                Material = material,
+                                Thickness = layer.Thickness
+                            });
+                        }
+                    }
+                    
+                    // Nastavíme název skladby pro příklad
+                    currentAssemblyName = "Příklad z galerie";
+                    
+                    StateHasChanged();
+                    
+                    // Zobrazíme zprávu o úspěšném načtení
+                    await JS.InvokeVoidAsync("blazorAlert", $"✅ Příklad skladby byl úspěšně načten! Obsahuje {layers.Count} vrstev.");
+                    
+                    // Tracking událostí
+                    await StatisticsService.TrackExampleUsedAsync();
+                    await TrackCalculationIfReady();
+                    
+                    // Vyčistíme URL parametr po načtení
+                    Navigation.NavigateTo("/thermal-resistance", replace: true);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"Chyba při načítání příkladu: {ex.Message}");
+        }
+    }
+    
+    private List<Material> GetFilteredMaterials()
+    {
+        if (string.IsNullOrEmpty(selectedCategory))
+            return availableMaterials;
+        
+        return availableMaterials.Where(m => m.Category == selectedCategory).ToList();
+    }
+    
+    private List<Material> GetMaterialsByCategory(string category)
+    {
+        return availableMaterials.Where(m => m.Category == category).ToList();
+    }
+    
+    private void OnCategoryFilterChanged(string? category)
+    {
+        selectedCategory = category ?? string.Empty;
+        StateHasChanged();
+    }
+    
+    private async void AddLayer()
+    {
+        var defaultMaterial = availableMaterials.FirstOrDefault() ?? new Material();
+        
+        wallAssembly.Layers.Add(new WallLayer
+        {
+            Material = new Material
+            {
+                Name = defaultMaterial.Name,
+                ThermalConductivity = defaultMaterial.ThermalConductivity,
+                Density = defaultMaterial.Density,
+                SpecificHeatCapacity = defaultMaterial.SpecificHeatCapacity,
+                Category = defaultMaterial.Category,
+                Manufacturer = defaultMaterial.Manufacturer,
+                ProductCode = defaultMaterial.ProductCode,
+                PricePerM3 = defaultMaterial.PricePerM3,
+                DiffusionResistanceFactor = defaultMaterial.DiffusionResistanceFactor
+            },
+            Thickness = 100
+        });
+        
+        // Tracking událostí
+        await StatisticsService.TrackLayerAddedAsync(defaultMaterial.Name, defaultMaterial.Category);
+        await TrackCalculationIfReady();
+        
+        StateHasChanged();
+    }
+    
+    private void RemoveLayer(int index)
+    {
+        if (index >= 0 && index < wallAssembly.Layers.Count)
+        {
+            wallAssembly.Layers.RemoveAt(index);
+            StateHasChanged();
+        }
+    }
+    
+    private async void OnMaterialChanged(int layerIndex, string? materialName)
+    {
+        if (layerIndex >= 0 && layerIndex < wallAssembly.Layers.Count && !string.IsNullOrEmpty(materialName))
+        {
+            var selectedMaterial = availableMaterials.FirstOrDefault(m => m.Name == materialName);
+            if (selectedMaterial != null)
+            {
+                wallAssembly.Layers[layerIndex].Material = new Material
+                {
+                    Name = selectedMaterial.Name,
+                    ThermalConductivity = selectedMaterial.ThermalConductivity,
+                    Density = selectedMaterial.Density,
+                    SpecificHeatCapacity = selectedMaterial.SpecificHeatCapacity,
+                    Category = selectedMaterial.Category,
+                    Manufacturer = selectedMaterial.Manufacturer,
+                    ProductCode = selectedMaterial.ProductCode,
+                    PricePerM3 = selectedMaterial.PricePerM3,
+                    DiffusionResistanceFactor = selectedMaterial.DiffusionResistanceFactor
+                };
+                
+                // Tracking událostí - změna materiálu je efektivně nová kalkulace
+                await TrackCalculationIfReady();
+                
+                StateHasChanged();
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Zaznamená výpočet pokud má skladba alespoň jednu vrstvu
+    /// </summary>
+    private async Task TrackCalculationIfReady()
+    {
+        if (wallAssembly.Layers.Count > 0)
+        {
+            await StatisticsService.TrackCalculationAsync(wallAssembly);
+        }
+    }
+    
+    private string GetRating(double uValue)
+    {
+        return uValue switch
+        {
+            <= 0.15 => "Výborné (pasivní dům)",
+            <= 0.20 => "Velmi dobré",
+            <= 0.30 => "Dobré (splňuje normu)",
+            <= 0.50 => "Průměrné",
+            <= 0.80 => "Slabé",
+            _ => "Nedostatečné"
+        };
+    }
+    
+    private string GetRatingClass(double uValue)
+    {
+        return uValue switch
+        {
+            <= 0.15 => "text-success",
+            <= 0.20 => "text-primary",
+            <= 0.30 => "text-info",
+            <= 0.50 => "text-warning",
+            <= 0.80 => "text-orange",
+            _ => "text-danger"
+        };
+    }
+
+    private string GetDiffusionRating(double diffusionResistance)
+    {
+        return diffusionResistance switch
+        {
+            <= 0.5 => "Výborná paropropustnost",
+            <= 2.0 => "Dobrá paropropustnost",
+            <= 5.0 => "Průměrná paropropustnost",
+            <= 10.0 => "Slabá paropropustnost",
+            _ => "Nedostatečná paropropustnost"
+        };
+    }
+    
+    private int GetTotalThickness()
+    {
+        return wallAssembly.Layers.Sum(layer => (int)layer.Thickness);
+    }
+    
+    private async Task ExportToPdf()
+    {
+        if (wallAssembly.Layers.Count == 0) return;
+
+        try
+        {
+            var success = await PdfExportService.GenerateThermalReportAsync(wallAssembly, "Tepelný výpočet zdi");
+
+            if (!success)
+            {
+                await JS.InvokeVoidAsync("blazorAlert", "PDF se nepodařilo vygenerovat.");
+                return;
+            }
+            
+            // Tracking událostí
+            await StatisticsService.TrackPdfExportAsync();
+        }
+        catch (Exception ex)
+        {
+            var errorMessage = $"Chyba při generování PDF: {ex.Message}";
+            if (ex.InnerException != null)
+            {
+                errorMessage += $"\nDetail: {ex.InnerException.Message}";
+            }
+            await JS.InvokeVoidAsync("blazorAlert", errorMessage);
+            await JS.InvokeVoidAsync("console.error", $"PDF Export Error: {ex}");
+        }
+    }
+
+    // Metody pro práci s localStorage
+    private async Task<List<SavedWallAssembly>> GetSavedAssembliesFromLocalStorage()
+    {
+        try
+        {
+            // Použijeme přímo eval pro bezpečnější přístup k localStorage
+            var assembliesJson = await JS.InvokeAsync<string>("eval", "localStorage.getItem('thermal_calculator_assemblies') || '[]'");
+            
+            if (!string.IsNullOrWhiteSpace(assembliesJson))
+            {
+                var assemblies = System.Text.Json.JsonSerializer.Deserialize<List<SavedWallAssembly>>(assembliesJson);
+                return assemblies ?? new List<SavedWallAssembly>();
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"Chyba při načítání skladeb: {ex.Message}");
+            // Vyčistíme localStorage při chybě
+            try
+            {
+                await JS.InvokeVoidAsync("eval", "localStorage.setItem('thermal_calculator_assemblies', '[]')");
+            }
+            catch
+            {
+                // Ignorujeme chybu při čištění
+            }
+        }
+        
+        return new List<SavedWallAssembly>();
+    }
+
+    private async Task SaveAssemblyToLocalStorage(WallAssembly assembly, string name)
+    {
+        try
+        {
+            var assemblies = await GetSavedAssembliesFromLocalStorage();
+            
+            // Odstranit existující skladbu se stejným názvem
+            assemblies.RemoveAll(a => a.Name == name);
+            
+            // Přidat novou skladbu
+            var savedAssembly = new SavedWallAssembly
+            {
+                Name = name,
+                CreatedAt = DateTime.Now,
+                Assembly = assembly
+            };
+            
+            assemblies.Add(savedAssembly);
+            
+            // Uložit do localStorage
+            var assembliesJson = System.Text.Json.JsonSerializer.Serialize(assemblies);
+            await JS.InvokeVoidAsync("eval", $"localStorage.setItem('thermal_calculator_assemblies', {System.Text.Json.JsonSerializer.Serialize(assembliesJson)})");
+            
+            // Tracking událostí
+            await StatisticsService.TrackAssemblySavedAsync();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"Chyba při ukládání skladby: {ex.Message}");
+        }
+    }
+
+    private async Task DeleteAssemblyFromLocalStorage(string name)
+    {
+        try
+        {
+            var assemblies = await GetSavedAssembliesFromLocalStorage();
+            assemblies.RemoveAll(a => a.Name == name);
+            var assembliesJson = System.Text.Json.JsonSerializer.Serialize(assemblies);
+            await JS.InvokeVoidAsync("eval", $"localStorage.setItem('thermal_calculator_assemblies', {System.Text.Json.JsonSerializer.Serialize(assembliesJson)})");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"Chyba při mazání skladby: {ex.Message}");
+        }
+    }
+
+    private async Task<WallAssembly?> LoadAssemblyFromLocalStorage(string name)
+    {
+        try
+        {
+            var assemblies = await GetSavedAssembliesFromLocalStorage();
+            var savedAssembly = assemblies.FirstOrDefault(a => a.Name == name);
+            return savedAssembly?.Assembly;
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"Chyba při načítání skladby: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task LoadCustomMaterials()
+    {
+        try
+        {
+            // Použijeme přímo eval pro bezpečnější přístup k localStorage
+            var materialsJson = await JS.InvokeAsync<string>("eval", "localStorage.getItem('custom_materials') || '[]'");
+            
+            if (!string.IsNullOrWhiteSpace(materialsJson))
+            {
+                var customMaterials = System.Text.Json.JsonSerializer.Deserialize<List<Material>>(materialsJson);
+                if (customMaterials != null)
+                {
+                    MaterialService.SetCustomMaterials(customMaterials);
+                    // Aktualizujeme seznam dostupných materiálů
+                    availableMaterials = MaterialService.GetAllMaterials();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"Chyba při načítání vlastních materiálů: {ex.Message}");
+            // Vyčistíme localStorage při chybě
+            try
+            {
+                await JS.InvokeVoidAsync("eval", "localStorage.setItem('custom_materials', '[]')");
+            }
+            catch
+            {
+                // Ignorujeme chybu při čištění
+            }
+        }
+    }
+    
+    // Metody pro analýzu kondenzace
+    private async Task ShowCondensationAnalysisInfo()
+    {
+        var modalContent = @"
+            <div class='modal-header'>
+                <h5 class='modal-title'><i class='bi bi-droplet'></i> Analýza kondenzace</h5>
+                <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+                <h6><i class='bi bi-question-circle'></i> Co je analýza kondenzace?</h6>
+                <p>Analýza kondenzace zjišťuje, zda se v konstrukci může tvořit kondenzace (vlhkost) při daných klimatických podmínkách.</p>
+
+                <h6><i class='bi bi-calculator'></i> Jak se počítá?</h6>
+                <p><strong>Metoda výpočtu:</strong></p>
+                <ul>
+                    <li>Výpočet teplotního profilu přes konstrukci</li>
+                    <li>Výpočet tlakového profilu vodní páry</li>
+                    <li>Porovnání teploty s rosným bodem</li>
+                    <li>Určení zón kondenzace</li>
+                </ul>
+
+                <h6><i class='bi bi-thermometer'></i> Klimatické podmínky:</h6>
+                <ul>
+                    <li><strong>Vnitřní:</strong> 20°C, 50% relativní vlhkost</li>
+                    <li><strong>Vnější:</strong> -15°C, 80% relativní vlhkost</li>
+                </ul>
+
+                <h6><i class='bi bi-exclamation-triangle'></i> Rizika kondenzace:</h6>
+                <ul>
+                    <li>Vznik plísní a vlhkosti</li>
+                    <li>Poškození konstrukce</li>
+                    <li>Zhoršení tepelně-izolačních vlastností</li>
+                    <li>Zdravotní problémy obyvatel</li>
+                </ul>
+
+                <h6><i class='bi bi-lightbulb'></i> Jak předcházet kondenzaci:</h6>
+                <ul>
+                    <li>Přidat parozábranu na vnitřní stranu</li>
+                    <li>Zvýšit tloušťku izolace</li>
+                    <li>Použít materiály s nižším faktorem difúzního odporu (μ)</li>
+                    <li>Správně navrhnout pořadí vrstev</li>
+                </ul>
+
+                <h6><i class='bi bi-book'></i> Normy a standardy:</h6>
+                <ul>
+                    <li>ČSN 73 0540-2 - Tepelná ochrana budov</li>
+                    <li>ČSN EN ISO 13788 - Hygrotermické vlastnosti stavebních komponent</li>
+                    <li>ČSN EN 15026 - Hygrotermické vlastnosti stavebních komponent</li>
+                </ul>
+            </div>
+            <div class='modal-footer'>
+                <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
+            </div>";
+
+        await JS.InvokeVoidAsync("showModal", "infoModal", modalContent);
+    }
+    
+    private void ShowCondensationAnalysis()
+    {
+        if (wallAssembly.Layers.Count == 0) return;
+        var dewPointCalculation = wallAssembly.CalculateDewPoint();
+        var modalContent = "";
+        modalContent +=
+            "<div class='modal-header'>" +
+            "<h5 class='modal-title'><i class='bi bi-graph-up'></i> Detailní analýza kondenzace</h5>" +
+            "<button type='button' class='btn-close' data-bs-dismiss='modal'></button>" +
+            "</div>" +
+            "<div class='modal-body'>" +
+            "<div class='row mb-3'>" +
+            "<div class='col-md-6'>" +
+            "<h6>Klimatické podmínky:</h6>" +
+            "<ul>" +
+            "<li><strong>Vnitřní:</strong> 20°C, 50% vlhkost</li>" +
+            "<li><strong>Vnější:</strong> -15°C, 80% vlhkost</li>" +
+            "</ul>" +
+            "</div>" +
+            "<div class='col-md-6'>" +
+            "<h6>Výsledky analýzy:</h6>" +
+            "<ul>" +
+            "<li><strong>Stav:</strong> " + (dewPointCalculation.HasCondensation ? "⚠️ Riziko kondenzace" : "✅ Bez rizika") + "</li>" +
+            "<li><strong>Celkový difúzní odpor:</strong> " + wallAssembly.TotalDiffusionResistance.ToString("F1") + " m</li>" +
+            "<li><strong>Počet zón kondenzace:</strong> " + dewPointCalculation.CondensationZones.Count + "</li>" +
+            "</ul>" +
+            "</div>" +
+            "</div>";
+
+        if (dewPointCalculation.HasCondensation)
+        {
+            modalContent +=
+                "<div class='alert alert-warning'>" +
+                "<h6><i class='bi bi-exclamation-triangle'></i> Zjištěno riziko kondenzace</h6>" +
+                "<p>Ve skladbě dochází ke kondenzaci vodní páry. Doporučujeme úpravu skladby.</p>" +
+                "</div>";
+        }
+        else
+        {
+            modalContent +=
+                "<div class='alert alert-success'>" +
+                "<h6><i class='bi bi-check-circle'></i> Bez rizika kondenzace</h6>" +
+                "<p>Skladba je z hlediska kondenzace bezpečná.</p>" +
+                "</div>";
+        }
+
+        modalContent +=
+            "<h6>Detailní analýza vrstev:</h6>" +
+            "<div class='table-responsive'>" +
+            "<table class='table table-sm'>" +
+            "<thead>" +
+            "<tr>" +
+            "<th>Vrstva</th>" +
+            "<th>Tloušťka [mm]</th>" +
+            "<th>Teplota na začátku [°C]</th>" +
+            "<th>Teplota na konci [°C]</th>" +
+            "<th>Rosný bod [°C]</th>" +
+            "<th>Stav</th>" +
+            "</tr>" +
+            "</thead>" +
+            "<tbody>";
+
+        foreach (var layer in dewPointCalculation.LayerCalculations)
+        {
+            modalContent +=
+                "<tr class='" + (layer.HasCondensation ? "table-danger" : "") + "'>" +
+                "<td>" + layer.MaterialName + "</td>" +
+                "<td>" + layer.Thickness.ToString("F0") + "</td>" +
+                "<td>" + layer.TemperatureAtStart.ToString("F1") + "</td>" +
+                "<td>" + layer.TemperatureAtEnd.ToString("F1") + "</td>" +
+                "<td>" + layer.DewPointTemperatureAtStart.ToString("F1") + "</td>" +
+                "<td>" + (layer.HasCondensation ? "<span class='badge bg-danger'>Kondenzace</span>" : "<span class='badge bg-success'>Bezpečné</span>") + "</td>" +
+                "</tr>";
+        }
+
+        modalContent += "</tbody></table></div>";
+
+        if (dewPointCalculation.CondensationZones.Any())
+        {
+            modalContent +=
+                "<h6 class='mt-3'>Zóny kondenzace:</h6>" +
+                "<div class='table-responsive'>" +
+                "<table class='table table-sm'>" +
+                "<thead>" +
+                "<tr>" +
+                "<th>Materiál</th>" +
+                "<th>Hloubka [mm]</th>" +
+                "<th>Množství [kg/(m²·rok)]</th>" +
+                "<th>Riziko</th>" +
+                "</tr>" +
+                "</thead>" +
+                "<tbody>";
+
+            foreach (var zone in dewPointCalculation.CondensationZones)
+            {
+                var badgeClass = zone.Severity == "Vysoké" ? "bg-danger" : zone.Severity == "Střední" ? "bg-warning" : "bg-info";
+                modalContent +=
+                    "<tr>" +
+                    "<td>" + zone.MaterialName + "</td>" +
+                    "<td>" + zone.StartDepth.ToString("F0") + " - " + zone.EndDepth.ToString("F0") + "</td>" +
+                    "<td>" + zone.CondensationAmount.ToString("F2") + "</td>" +
+                    "<td><span class='badge " + badgeClass + "'>" + zone.Severity + "</span></td>" +
+                    "</tr>";
+            }
+
+            modalContent += "</tbody></table></div>";
+        }
+
+        modalContent +=
+            "</div>" +
+            "<div class='modal-footer'>" +
+            "<button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>" +
+            "</div>";
+
+        JS.InvokeVoidAsync("showModal", "infoModal", modalContent);
+    }
+    
+    // Metody pro další info modaly
+    private async Task ShowThermalConductivityInfo()
+    {
+        var content = @"
+            <div class='modal-header'>
+                <h5 class='modal-title'><i class='bi bi-thermometer-half'></i> Tepelná vodivost (λ)</h5>
+                <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+                <h6>Co je tepelná vodivost?</h6>
+                <p>Tepelná vodivost (λ, lambda) je materiálová konstanta udávající schopnost materiálu vést teplo. Čím nižší hodnota, tím lepší izolace.</p>
+
+                <h6>Typické hodnoty:</h6>
+                <ul>
+                    <li><strong>Minerální vata:</strong> 0.035-0.045 W/(m·K)</li>
+                    <li><strong>Polystyren:</strong> 0.030-0.040 W/(m·K)</li>
+                    <li><strong>Dřevo:</strong> 0.12-0.18 W/(m·K)</li>
+                    <li><strong>Cihla:</strong> 0.3-0.8 W/(m·K)</li>
+                    <li><strong>Beton:</strong> 1.5-2.1 W/(m·K)</li>
+                </ul>
+            </div>
+            <div class='modal-footer'>
+                <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
+            </div>";
+
+        await JS.InvokeVoidAsync("showModal", "infoModal", content);
+    }
+    
+    private async Task ShowThermalResistanceInfo()
+    {
+        var content = @"
+            <div class='modal-header'>
+                <h5 class='modal-title'><i class='bi bi-shield-check'></i> Tepelný odpor (R)</h5>
+                <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+                <h6>Co je tepelný odpor?</h6>
+                <p>Tepelný odpor (R) udává schopnost konstrukce odolávat prostupu tepla. Vzorec: R = d/λ [m²K/W]</p>
+
+                <h6>Hodnocení:</h6>
+                <ul>
+                    <li><strong>R &lt; 1.0:</strong> Slabá izolace</li>
+                    <li><strong>R 1.0-2.5:</strong> Průměrná izolace</li>
+                    <li><strong>R 2.5-5.0:</strong> Dobrá izolace</li>
+                    <li><strong>R &gt; 5.0:</strong> Vynikající izolace</li>
+                </ul>
+            </div>
+            <div class='modal-footer'>
+                <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
+            </div>";
+
+        await JS.InvokeVoidAsync("showModal", "infoModal", content);
+    }
+    
+    private async Task ShowThermalTransmittanceInfo()
+    {
+        var content = @"
+            <div class='modal-header'>
+                <h5 class='modal-title'><i class='bi bi-arrow-left-right'></i> Součinitel prostupu tepla (U)</h5>
+                <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+                <h6>Co je součinitel prostupu tepla?</h6>
+                <p>Součinitel prostupu tepla (U) udává množství tepla, které projde 1 m² konstrukce při rozdílu teplot 1 K.</p>
+
+                <h6>Hodnocení:</h6>
+                <ul>
+                    <li><strong>U ≤ 0.15:</strong> Pasivní dům</li>
+                    <li><strong>U ≤ 0.20:</strong> Nízkoenergetický dům</li>
+                    <li><strong>U ≤ 0.30:</strong> Splňuje normu</li>
+                    <li><strong>U ≤ 0.50:</strong> Průměrná hodnota</li>
+                    <li><strong>U &gt; 0.80:</strong> Nedostatečná izolace</li>
+                </ul>
+            </div>
+            <div class='modal-footer'>
+                <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
+            </div>";
+
+        await JS.InvokeVoidAsync("showModal", "infoModal", content);
+    }
+    
+    private void ShowSurfaceResistanceInfo()
+    {
+        var content = @"
+            <div class='modal-header'>
+                <h5 class='modal-title'><i class='bi bi-layers'></i> Povrchové odpory</h5>
+                <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+                <h6>Co jsou povrchové odpory?</h6>
+                <p>Povrchové odpory (Rsi a Rse) jsou tepelné odpory na rozhraní mezi konstrukcí a okolním prostředím.</p>
+                
+                <h6>Standardní hodnoty:</h6>
+                <ul>
+                    <li><strong>Rsi (vnitřní):</strong> 0.13 m²K/W</li>
+                    <li><strong>Rse (vnější):</strong> 0.04 m²K/W</li>
+                </ul>
+            </div>
+            <div class='modal-footer'>
+                <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
+            </div>";
+        
+        JS.InvokeVoidAsync("showModal", "infoModal", content);
+    }
+    
+    private void ShowPhaseShiftInfo()
+    {
+        var content = @"
+            <div class='modal-header'>
+                <h5 class='modal-title'><i class='bi bi-clock'></i> Fázový posun</h5>
+                <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+                <h6>Co je fázový posun?</h6>
+                <p>Fázový posun je čas, za který teplo projde skladbou zdi z vnějšího povrchu na vnitřní povrch.</p>
+                
+                <h6>Hodnocení:</h6>
+                <ul>
+                    <li><strong>&lt; 8 hodin:</strong> Rychlá reakce na změny teploty</li>
+                    <li><strong>8-12 hodin:</strong> Střední tepelná setrvačnost</li>
+                    <li><strong>&gt; 12 hodin:</strong> Vysoká tepelná setrvačnost</li>
+                </ul>
+            </div>
+            <div class='modal-footer'>
+                <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
+            </div>";
+        
+        JS.InvokeVoidAsync("showModal", "infoModal", content);
+    }
+    
+    // Metody pro práci se skladbami
+    private void NewAssembly()
+    {
+        wallAssembly = new WallAssembly();
+        currentAssemblyName = null; // Vymazat název při nové skladbě
+        StateHasChanged();
+    }
+    
+    private void NavigateToExamples()
+    {
+        Navigation.NavigateTo("/examples");
+    }
+    
+    private async Task ShowSaveDialog()
+    {
+        if (wallAssembly.Layers.Count == 0)
+        {
+            await JS.InvokeVoidAsync("blazorAlert", "Nelze uložit prázdnou skladbu. Přidejte alespoň jednu vrstvu.");
+            return;
+        }
+        
+        var assemblyName = await JS.InvokeAsync<string>("blazorPrompt", "Zadejte název skladby:", $"Skladba {DateTime.Now:dd.MM.yyyy}");
+        if (string.IsNullOrWhiteSpace(assemblyName)) return;
+        
+        try
+        {
+            await SaveAssemblyToLocalStorage(wallAssembly, assemblyName);
+            currentAssemblyName = assemblyName; // Nastavit název po uložení
+            savedAssemblies = await GetSavedAssembliesFromLocalStorage();
+            StateHasChanged();
+            await JS.InvokeVoidAsync("blazorAlert", $"Skladba '{assemblyName}' byla úspěšně uložena.");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("blazorAlert", $"Chyba při ukládání skladby: {ex.Message}");
+        }
+    }
+    
+    private async Task ShowLoadDialog()
+    {
+        try
+        {
+            savedAssemblies = await GetSavedAssembliesFromLocalStorage();
+            if (!savedAssemblies.Any())
+            {
+                await JS.InvokeVoidAsync("blazorAlert", "Nejsou k dispozici žádné uložené skladby.");
+                return;
+            }
+            var modalContent = @"<div class='modal-header'>
+                <h5 class='modal-title'><i class='bi bi-folder-open'></i> Načíst skladbu</h5>
+                <button type='button' class='btn btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+                <p>Vyberte skladbu k načtení:</p>
+                <div class='list-group'>";
+            foreach (var assembly in savedAssemblies)
+            {
+                var layerCount = assembly.Assembly.Layers.Count;
+                var totalThickness = assembly.Assembly.Layers.Sum(l => l.Thickness);
+                var uValue = assembly.Assembly.ThermalTransmittance;
+                var safeName = assembly.Name.Replace("'", "&#39;").Replace("\"", "&quot;");
+                modalContent += $@"<button type='button' class='list-group-item list-group-item-action' onclick='window.loadAssemblyInstance(""{safeName}"")'>{assembly.Name} <span class='badge bg-primary ms-2'>{layerCount} vrstev</span> <span class='badge bg-info ms-2'>{totalThickness} mm</span> <span class='badge bg-success ms-2'>U = {uValue:F3} W/(m²·K)</span></button>";
+            }
+            modalContent += @"</div>
+            </div>
+            <div class='modal-footer'>
+                <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
+            </div>";
+            await JS.InvokeVoidAsync("showModal", "infoModal", modalContent);
+            // Zaregistruj JS funkci s referencí na tuto instanci
+            await JS.InvokeVoidAsync("setBlazorReference", selfReference);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("blazorAlert", $"Chyba při načítání skladeb: {ex.Message}");
+        }
+    }
+
+    [JSInvokable]
+    public async Task LoadAssemblyByName(string assemblyName)
+    {
+        try
+        {
+            var loadedAssembly = await LoadAssemblyFromLocalStorage(assemblyName);
+            if (loadedAssembly != null)
+            {
+                wallAssembly = loadedAssembly;
+                currentAssemblyName = assemblyName;
+                StateHasChanged();
+                await JS.InvokeVoidAsync("blazorAlert", $"Skladba '{assemblyName}' byla úspěšně načtena.");
+                
+                // Tracking událostí
+                await StatisticsService.TrackAssemblyLoadedAsync();
+                await TrackCalculationIfReady();
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("blazorAlert", $"Skladba '{assemblyName}' nebyla nalezena.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("blazorAlert", $"Chyba při načítání skladby: {ex.Message}");
+        }
+    }
+
+    // Metody pro grafy
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Inicializace drag & drop
+            await JS.InvokeVoidAsync("initDragDrop", selfReference);
+        }
+        
+        if (wallAssembly.Layers.Count > 0)
+        {
+            await CreateCharts();
+        }
+    }
+    
+    private async Task CreateCharts()
+    {
+        if (wallAssembly.Layers.Count == 0) return;
+        
+        await CreateThermalResistanceChart();
+        await CreateThicknessChart();
+        await CreateCondensationChart();
+    }
+    
+    private async Task CreateThermalResistanceChart()
+    {
+        var labels = wallAssembly.Layers.Select((layer, index) => $"Vrstva {index + 1}: {layer.Material.Name}").ToArray();
+        var data = wallAssembly.Layers.Select(layer => layer.ThermalResistance).ToArray();
+        
+        var config = new
+        {
+            type = "bar",
+            data = new
+            {
+                labels = labels,
+                datasets = new[]
+                {
+                    new
+                    {
+                        label = "Tepelný odpor [m²·K/W]",
+                        data = data,
+                        backgroundColor = "rgba(54, 162, 235, 0.5)",
+                        borderColor = "rgba(54, 162, 235, 1)",
+                        borderWidth = 1
+                    }
+                }
+            },
+            options = new
+            {
+                responsive = true,
+                maintainAspectRatio = false,
+                scales = new
+                {
+                    y = new
+                    {
+                        beginAtZero = true,
+                        title = new { display = true, text = "Tepelný odpor [m²·K/W]" }
+                    }
+                }
+            }
+        };
+        
+        await JS.InvokeVoidAsync("createChart", "thermalResistanceChart", config);
+    }
+    
+    private async Task CreateThicknessChart()
+    {
+        var labels = wallAssembly.Layers.Select((layer, index) => $"Vrstva {index + 1}: {layer.Material.Name}").ToArray();
+        var data = wallAssembly.Layers.Select(layer => layer.Thickness).ToArray();
+        
+        var config = new
+        {
+            type = "bar",
+            data = new
+            {
+                labels = labels,
+                datasets = new[]
+                {
+                    new
+                    {
+                        label = "Tloušťka [mm]",
+                        data = data,
+                        backgroundColor = "rgba(255, 99, 132, 0.5)",
+                        borderColor = "rgba(255, 99, 132, 1)",
+                        borderWidth = 1
+                    }
+                }
+            },
+            options = new
+            {
+                responsive = true,
+                maintainAspectRatio = false,
+                scales = new
+                {
+                    y = new
+                    {
+                        beginAtZero = true,
+                        title = new { display = true, text = "Tloušťka [mm]" }
+                    }
+                }
+            }
+        };
+        
+        await JS.InvokeVoidAsync("createChart", "thicknessChart", config);
+    }
+    
+    private async Task CreateCondensationChart()
+    {
+        if (wallAssembly.Layers.Count == 0) return;
+        
+        var dewPointCalculation = wallAssembly.CalculateDewPoint();
+        var totalThickness = wallAssembly.Layers.Sum(l => l.Thickness);
+        
+        // Vytvoření dat pro teplotní profil
+        var depthData = new List<double>();
+        var temperatureData = new List<double>();
+        var dewPointData = new List<double>();
+        
+        double currentDepth = 0;
+        double currentTemperature = wallAssembly.InternalTemperature; // vnitřní teplota
+        
+        // Parametry z vlastních klimatických podmínek
+        double internalTemperature = wallAssembly.InternalTemperature; // °C
+        double externalTemperature = wallAssembly.ExternalTemperature; // °C
+        
+        // Celkový tepelný odpor skladby (bez povrchových odporů)
+        double totalThermalResistance = wallAssembly.TotalThermalResistance - wallAssembly.InternalSurfaceResistance - wallAssembly.ExternalSurfaceResistance;
+        
+        // Tepelný tok (W/m²)
+        double heatFlux = (internalTemperature - externalTemperature) / wallAssembly.TotalThermalResistance;
+        
+        // Přidat vnitřní hranici
+        depthData.Add(currentDepth);
+        temperatureData.Add(currentTemperature);
+        dewPointData.Add(CalculateDewPointTemperature(currentTemperature, wallAssembly.InternalHumidity / 100.0)); // vlastní vlhkost
+        
+        // Výpočet teplotního profilu přes jednotlivé vrstvy
+        foreach (var layer in wallAssembly.Layers)
+        {
+            // Tepelný odpor vrstvy
+            double layerThermalResistance = layer.ThermalResistance;
+            
+            // Pokles teploty přes vrstvu
+            double temperatureDrop = heatFlux * layerThermalResistance;
+            
+            // Nová teplota na konci vrstvy
+            currentTemperature -= temperatureDrop;
+            currentDepth += layer.Thickness;
+            
+            depthData.Add(currentDepth);
+            temperatureData.Add(currentTemperature);
+            dewPointData.Add(CalculateDewPointTemperature(currentTemperature, wallAssembly.InternalHumidity / 100.0)); // vlastní vlhkost
+        }
+        
+        var config = new
+        {
+            type = "line",
+            data = new
+            {
+                labels = depthData.Select(d => $"{d:F0} mm").ToArray(),
+                datasets = new[]
+                {
+                    new
+                    {
+                        label = "Teplota [°C]",
+                        data = temperatureData.ToArray(),
+                        borderColor = "rgba(255, 99, 132, 1)",
+                        backgroundColor = "rgba(255, 99, 132, 0.1)",
+                        tension = 0.1
+                    },
+                    new
+                    {
+                        label = "Rosný bod [°C]",
+                        data = dewPointData.ToArray(),
+                        borderColor = "rgba(54, 162, 235, 1)",
+                        backgroundColor = "rgba(54, 162, 235, 0.1)",
+                        tension = 0.1
+                    }
+                }
+            },
+            options = new
+            {
+                responsive = true,
+                maintainAspectRatio = false,
+                plugins = new
+                {
+                    legend = new
+                    {
+                        position = "top",
+                        labels = new
+                        {
+                            usePointStyle = true,
+                            font = new { size = 12 }
+                        }
+                    },
+                    tooltip = new
+                    {
+                        mode = "index",
+                        intersect = false
+                    }
+                },
+                scales = new
+                {
+                    x = new
+                    {
+                        title = new { 
+                            display = true, 
+                            text = "Hloubka konstrukce [mm]",
+                            font = new { size = 12, weight = "bold" }
+                        },
+                        grid = new { display = true }
+                    },
+                    y = new
+                    {
+                        title = new { 
+                            display = true, 
+                            text = "Teplota [°C]",
+                            font = new { size = 12, weight = "bold" }
+                        },
+                        grid = new { display = true }
+                    }
+                },
+                interaction = new
+                {
+                    mode = "nearest",
+                    axis = "x",
+                    intersect = false
+                }
+            }
+        };
+        
+        await JS.InvokeVoidAsync("createChart", "condensationChart", config);
+    }
+    
+    private double CalculateDewPointTemperature(double temperature, double relativeHumidity)
+    {
+        // Výpočet rosného bodu podle Magnusova vzorce
+        double a = 17.27;
+        double b = 237.7;
+        
+        double alpha = ((a * temperature) / (b + temperature)) + Math.Log(relativeHumidity);
+        double dewPoint = (b * alpha) / (a - alpha);
+        
+        return dewPoint;
+    }
+    
+    // Metody pro klimatické podmínky
+    private void ResetClimateConditions()
+    {
+        wallAssembly.InternalTemperature = 20.0;
+        wallAssembly.ExternalTemperature = -15.0;
+        wallAssembly.InternalHumidity = 50.0;
+        wallAssembly.ExternalHumidity = 80.0;
+        StateHasChanged();
+    }
+    
+    private async Task ShowClimateConditionsInfo()
+    {
+        var content = @"
+            <div class='modal-header'>
+                <h5 class='modal-title'><i class='bi bi-thermometer-half'></i> Klimatické podmínky</h5>
+                <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+                <h6>Co jsou klimatické podmínky?</h6>
+                <p>Klimatické podmínky definují teploty a vlhkosti vnitřního a vnějšího prostředí pro výpočet kondenzace.</p>
+
+                <h6>Výchozí hodnoty podle ČSN 73 0540-2:</h6>
+                <ul>
+                    <li><strong>Vnitřní prostředí:</strong> 20°C, 50% relativní vlhkost</li>
+                    <li><strong>Vnější prostředí:</strong> -15°C, 80% relativní vlhkost</li>
+                </ul>
+
+                <h6>Doporučené rozsahy:</h6>
+                <ul>
+                    <li><strong>Vnitřní teplota:</strong> 18-24°C (obytné prostory)</li>
+                    <li><strong>Vnitřní vlhkost:</strong> 30-60% (komfortní prostředí)</li>
+                    <li><strong>Vnější teplota:</strong> podle klimatické zóny (-30 až +10°C)</li>
+                    <li><strong>Vnější vlhkost:</strong> 60-95% (typicky 80-90%)</li>
+                </ul>
+
+                <h6>Vliv na výpočet kondenzace:</h6>
+                <ul>
+                    <li>Vyšší rozdíl teplot zvyšuje riziko kondenzace</li>
+                    <li>Vyšší vnitřní vlhkost zvyšuje riziko kondenzace</li>
+                    <li>Nižší vnější teplota zvyšuje riziko kondenzace</li>
+                </ul>
+            </div>
+            <div class='modal-footer'>
+                <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
+            </div>";
+
+        await JS.InvokeVoidAsync("showModal", "infoModal", content);
+    }
+    
+    // Validační metody
+    private string GetThicknessString(WallLayer layer)
+    {
+        return layer.Thickness.ToString();
+    }
+    
+    private async Task OnThicknessChanged(int layerIndex, string value)
+    {
+        if (double.TryParse(value, out double thickness))
+        {
+            wallAssembly.Layers[layerIndex].Thickness = thickness;
+            StateHasChanged();
+            await CreateCharts();
+        }
+    }
+    
+    private List<ValidationResult> ValidateThickness(WallLayer layer, string value)
+    {
+        var results = new List<ValidationResult>();
+        
+        if (!double.TryParse(value, out double thickness))
+        {
+            return results; // Základní validace už proběhla
+        }
+        
+        // Použij ValidationHelper
+        var layerValidation = ValidationHelper.ValidateLayerThickness(layer);
+        results.AddRange(layerValidation);
+        
+        // Přidej specifické tipy podle kategorie materiálu
+        if (layer.Material.Category == "Izolace" && thickness < 100)
+        {
+            results.Add(new ValidationResult
+            {
+                Severity = ValidationSeverity.Info,
+                Message = "Tip pro lepší izolaci",
+                Details = $"Pro splnění doporučené hodnoty ČSN zvažte tloušťku alespoň 100 mm",
+                Category = ValidationCategory.CzechStandards
+            });
+        }
+        
+        return results;
+    }
+    
+    private string GetValidationAlertClass(ValidationSeverity severity)
+    {
+        return severity switch
+        {
+            ValidationSeverity.Info => "info",
+            ValidationSeverity.Warning => "warning",
+            ValidationSeverity.Error => "danger",
+            ValidationSeverity.Critical => "danger",
+            _ => "secondary"
+        };
+    }
+    
+    // === METODY PRO POKROČILÉ VÝPOČTY ===
+    
+    private string GetThermalInertiaClass(double damping)
+    {
+        return damping switch
+        {
+            >= 15 => "text-success",
+            >= 10 => "text-primary",
+            >= 5 => "text-info",
+            >= 2 => "text-warning",
+            _ => "text-danger"
+        };
+    }
+    
+    private string GetThermalInertiaRating(ThermalInertiaRating rating)
+    {
+        return rating switch
+        {
+            ThermalInertiaRating.VeryHigh => "Velmi vysoká setrvačnost",
+            ThermalInertiaRating.High => "Vysoká setrvačnost",
+            ThermalInertiaRating.Medium => "Střední setrvačnost",
+            ThermalInertiaRating.Low => "Nízká setrvačnost",
+            ThermalInertiaRating.VeryLow => "Velmi nízká setrvačnost",
+            _ => "Neznámé"
+        };
+    }
+    
+    private string GetSummerComfortClass(SummerComfortRating rating)
+    {
+        return rating switch
+        {
+            SummerComfortRating.Excellent => "text-success",
+            SummerComfortRating.Good => "text-primary",
+            SummerComfortRating.Adequate => "text-info",
+            SummerComfortRating.Poor => "text-warning",
+            SummerComfortRating.Inadequate => "text-danger",
+            _ => "text-muted"
+        };
+    }
+    
+    private string GetSummerComfortRating(SummerComfortRating rating)
+    {
+        return rating switch
+        {
+            SummerComfortRating.Excellent => "Výborný letní komfort",
+            SummerComfortRating.Good => "Dobrý letní komfort",
+            SummerComfortRating.Adequate => "Přijatelný letní komfort",
+            SummerComfortRating.Poor => "Slabý letní komfort",
+            SummerComfortRating.Inadequate => "Riziko přehřívání",
+            _ => "Neznámé"
+        };
+    }
+    
+    private string GetThermalBridgeCriticalityClass()
+    {
+        var criticality = wallAssembly.GetThermalBridgeCriticality(thermalBridges);
+        return criticality switch
+        {
+            ThermalBridgeCriticality.Negligible => "text-success",
+            ThermalBridgeCriticality.Low => "text-info",
+            ThermalBridgeCriticality.Medium => "text-warning",
+            ThermalBridgeCriticality.High => "text-danger",
+            ThermalBridgeCriticality.Critical => "text-danger fw-bold",
+            _ => "text-muted"
+        };
+    }
+    
+    private string GetThermalBridgeCriticalityText()
+    {
+        var criticality = wallAssembly.GetThermalBridgeCriticality(thermalBridges);
+        var increase = thermalBridges.UThermalBridgeCorrection / wallAssembly.ThermalTransmittance * 100;
+        
+        return criticality switch
+        {
+            ThermalBridgeCriticality.Negligible => $"Zanedbatelný vliv (+{increase:F1}%)",
+            ThermalBridgeCriticality.Low => $"Nízký vliv (+{increase:F1}%)",
+            ThermalBridgeCriticality.Medium => $"Střední vliv (+{increase:F1}%)",
+            ThermalBridgeCriticality.High => $"Vysoký vliv (+{increase:F1}%)",
+            ThermalBridgeCriticality.Critical => $"Kritický vliv (+{increase:F1}%)",
+            _ => "Neznámé"
+        };
+    }
+    
+    private async Task ShowThermalBridgesDialog()
+    {
+        // Pokud nemáme žádné mostky, automaticky přidej typické
+        if (!thermalBridges.Bridges.Any())
+        {
+            thermalBridges = wallAssembly.GetRecommendedThermalBridges();
+        }
+        
+        var modalContent = $@"
+            <div class='modal-header'>
+                <h5 class='modal-title'><i class='bi bi-diagram-3'></i> Lineární tepelné mostky</h5>
+                <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+                <h6>Typické tepelné mostky pro tuto konstrukci:</h6>
+                <div class='table-responsive'>
+                    <table class='table table-sm'>
+                        <thead>
+                            <tr>
+                                <th>Typ mostu</th>
+                                <th>ψ [W/mK]</th>
+                                <th>Délka [m]</th>
+                                <th>Ztráta [W/K]</th>
+                                <th>Aktivní</th>
+                            </tr>
+                        </thead>
+                        <tbody>";
+        
+        foreach (var bridge in thermalBridges.Bridges)
+        {
+            var enabledIcon = bridge.IsEnabled ? "✓" : "✗";
+            var enabledClass = bridge.IsEnabled ? "text-success" : "text-muted";
+            
+            var rowClass = bridge.IsEnabled ? "" : "text-muted";
+            modalContent += $@"
+                <tr class='{rowClass}'>
+                    <td>{bridge.Name}</td>
+                    <td>{bridge.PsiValue:F3}</td>
+                    <td>{bridge.Length:F1}</td>
+                    <td>{bridge.HeatLoss:F2}</td>
+                    <td class='{enabledClass}'>{enabledIcon}</td>
+                </tr>";
+        }
+        
+        var totalCorrection = thermalBridges.UThermalBridgeCorrection;
+        var newUValue = wallAssembly.ThermalTransmittance + totalCorrection;
+        var criticality = wallAssembly.GetThermalBridgeCriticality(thermalBridges);
+        
+        modalContent += $@"
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class='mt-3'>
+                    <h6>Výsledky:</h6>
+                    <ul>
+                        <li><strong>Korekce U-hodnoty:</strong> +{totalCorrection:F3} W/(m²·K)</li>
+                        <li><strong>U s tepelnými mostky:</strong> {newUValue:F3} W/(m²·K)</li>
+                        <li><strong>Kritičnost:</strong> {GetThermalBridgeCriticalityText()}</li>
+                    </ul>
+                </div>
+                
+                <div class='alert alert-info'>
+                    <h6><i class='bi bi-info-circle'></i> O tepelných mostkách:</h6>
+                    <p>Hodnoty ψ jsou podle ČSN EN ISO 14683 a reprezentují typické detaily. 
+                    Pro přesný výpočet použijte specifické hodnoty pro vaše detaily.</p>
+                </div>
+            </div>
+            <div class='modal-footer'>
+                <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
+            </div>";
+        
+        await JS.InvokeVoidAsync("showModal", "infoModal", modalContent);
+        StateHasChanged();
+    }
+    
+    private void ShowAdvancedCalculationsInfo()
+    {
+        var content = @"
+            <div class='modal-header'>
+                <h5 class='modal-title'><i class='bi bi-gear'></i> Pokročilé výpočty</h5>
+                <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+                <h6>Dynamické tepelné vlastnosti:</h6>
+                <ul>
+                    <li><strong>Teplotní útlum ν:</strong> Poměr amplitud vnější a vnitřní teploty. Vyšší hodnota = lepší letní komfort.</li>
+                    <li><strong>Amplituda dekremetu:</strong> Procentuální snížení amplitudy teplotní vlny při průchodu konstrukcí.</li>
+                    <li><strong>Dynamický fázový posun:</strong> Časové zpoždění teplotní vlny při průchodu konstrukcí.</li>
+                </ul>
+                
+                <h6>Lineární tepelné mostky:</h6>
+                <ul>
+                    <li><strong>ψ hodnoty:</strong> Lineární činitel prostupu tepla podle ČSN EN ISO 14683</li>
+                    <li><strong>Korekce U-hodnoty:</strong> Zvýšení součinitele prostupu tepla vlivem tepelných mostků</li>
+                    <li><strong>Typické mostky:</strong> Rohy, základy, atiky, okenní otvory, balkony</li>
+                </ul>
+                
+                <h6>Hodnocení letního komfortu:</h6>
+                <ul>
+                    <li><strong>Výborné:</strong> ν ≥ 10, fázový posun ≥ 8h</li>
+                    <li><strong>Dobré:</strong> ν ≥ 5, fázový posun ≥ 6h</li>
+                    <li><strong>Přijatelné:</strong> ν ≥ 3, fázový posun ≥ 4h</li>
+                    <li><strong>Nedostatečné:</strong> Riziko přehřívání v létě</li>
+                </ul>
+            </div>
+            <div class='modal-footer'>
+                <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
+            </div>";
+        
+        JS.InvokeVoidAsync("showModal", "infoModal", content);
+    }
+    
+    // === DRAG & DROP METODY ===
+    
+    private async Task OnDragStart(DragEventArgs e, int index)
+    {
+        await JS.InvokeVoidAsync("onDragStart", e, index);
+    }
+    
+    private async Task OnDragEnd(DragEventArgs e)
+    {
+        await JS.InvokeVoidAsync("onDragEnd", e);
+    }
+    
+    private async Task OnDragEnter(DragEventArgs e, int index)
+    {
+        await JS.InvokeVoidAsync("onDragEnter", e, index);
+    }
+    
+    private async Task OnDragOver(DragEventArgs e, int index)
+    {
+        await JS.InvokeVoidAsync("onDragOver", e, index);
+    }
+    
+    private async Task OnDragLeave(DragEventArgs e, int index)
+    {
+        await JS.InvokeVoidAsync("onDragLeave", e, index);
+    }
+    
+    private async Task OnDrop(DragEventArgs e, int index)
+    {
+        await JS.InvokeVoidAsync("onDrop", e, index);
+    }
+    
+    // Metoda volaná z JavaScriptu pro přesunutí vrstev
+    [JSInvokable]
+    public async Task ReorderLayers(int fromIndex, int toIndex)
+    {
+        try
+        {
+            if (fromIndex < 0 || fromIndex >= wallAssembly.Layers.Count ||
+                toIndex < 0 || toIndex >= wallAssembly.Layers.Count ||
+                fromIndex == toIndex)
+            {
+                return;
+            }
+            
+            // Přesunout vrstvu
+            var layer = wallAssembly.Layers[fromIndex];
+            wallAssembly.Layers.RemoveAt(fromIndex);
+            wallAssembly.Layers.Insert(toIndex, layer);
+            
+            // Aktualizovat UI a přepočítat
+            StateHasChanged();
+            
+            // Krátké zpoždění před přepočítáním grafů
+            await Task.Delay(100);
+            await CreateCharts();
+            
+            Console.WriteLine($"Layer moved from {fromIndex} to {toIndex}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error reordering layers: {ex.Message}");
+        }
+    }
+    
+    // === ŠABLONY METODY ===
+    
+    private SelectedTemplate? currentSelectedTemplate;
+    
+    private async Task ShowTemplatesDialog()
+    {
+        await JS.InvokeVoidAsync("eval", "new bootstrap.Modal(document.getElementById('templatesModal')).show()");
+    }
+    
+    private async Task OnTemplateSelected(string templateName)
+    {
+        try
+        {
+            var template = TemplateService.GetAllTemplates().FirstOrDefault(t => t.Name == templateName);
+            if (template == null)
+            {
+                await JS.InvokeVoidAsync("blazorAlert", "Šablona nebyla nalezena.");
+                return;
+            }
+            
+            // Připravit SelectedTemplate pro úpravu
+            currentSelectedTemplate = new SelectedTemplate
+            {
+                Template = template,
+                Layers = template.Layers.Select(tl => new SelectedTemplateLayer
+                {
+                    TemplateLayer = tl,
+                    SelectedThickness = tl.DefaultThickness,
+                    IsEnabled = true
+                }).ToList()
+            };
+            
+            StateHasChanged();
+            
+            // Zavřít templates modal a otevřít customization modal
+            await JS.InvokeVoidAsync("eval", "bootstrap.Modal.getInstance(document.getElementById('templatesModal')).hide()");
+            await Task.Delay(300); // Krátké zpoždění pro plynulý přechod
+            await JS.InvokeVoidAsync("eval", "new bootstrap.Modal(document.getElementById('templateCustomizationModal')).show()");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("blazorAlert", $"Chyba při výběru šablony: {ex.Message}");
+        }
+    }
+    
+    private async Task OnTemplateApplied(SelectedTemplate selectedTemplate)
+    {
+        try
+        {
+            // Převést na WallAssembly
+            var newAssembly = TemplateService.ConvertToWallAssembly(selectedTemplate, MaterialService);
+            
+            // Nahradit současnou skladbu
+            wallAssembly = newAssembly;
+            
+            // Zavřít modal
+            await JS.InvokeVoidAsync("eval", "bootstrap.Modal.getInstance(document.getElementById('templateCustomizationModal')).hide()");
+            
+            // Aktualizovat UI
+            StateHasChanged();
+            
+            // Přepočítat grafy
+            await Task.Delay(100);
+            await CreateCharts();
+            
+            await JS.InvokeVoidAsync("blazorAlert", $"Šablona '{selectedTemplate.Template.Name}' byla úspěšně aplikována!");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("blazorAlert", $"Chyba při aplikaci šablony: {ex.Message}");
+        }
+    }
+    
+    // === 3D VIZUALIZACE METODY ===
+    
+    private async Task Handle3DVisualizationError(string errorMessage)
+    {
+        await JS.InvokeVoidAsync("blazorAlert", $"Chyba 3D vizualizace: {errorMessage}");
+    }
+    
+    private void Show3DVisualizationInfo()
+    {
+        var content = @"
+            <div class='modal-header'>
+                <h5 class='modal-title'><i class='bi bi-box'></i> 3D Vizualizace</h5>
+                <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+                <h6>Co je 3D vizualizace?</h6>
+                <p>Interaktivní 3D zobrazení řezu zdí s teplotními gradienty a kondenzačními zónami.</p>
+                
+                <h6>Režimy zobrazení:</h6>
+                <ul>
+                    <li><strong>Teploty:</strong> Barevný gradient podle teploty v jednotlivých vrstvách</li>
+                    <li><strong>Materiály:</strong> Barevné rozlišení podle typu materiálu</li>
+                    <li><strong>Kondenzace:</strong> Zvýraznění zón s rizikem kondenzace</li>
+                    <li><strong>Tepelný tok:</strong> Animace směru a intenzity tepelného toku</li>
+                    <li><strong>Rozměry:</strong> Proporcionální zobrazení tlouštěk vrstev</li>
+                </ul>
+                
+                <h6>Ovládání 3D scény:</h6>
+                <ul>
+                    <li><strong>Rotace:</strong> Levé tlačítko myši + pohyb</li>
+                    <li><strong>Posun:</strong> Pravé tlačítko myši + pohyb</li>
+                    <li><strong>Přiblížení/Oddálení:</strong> Kolečko myši</li>
+                    <li><strong>Reset pohledu:</strong> Tlačítko 'Reset pohledu'</li>
+                </ul>
+                
+                <h6>Barevné schémy (pro teplotní mód):</h6>
+                <ul>
+                    <li><strong>Modra-Červená:</strong> Klasické zobrazení (studená → teplá)</li>
+                    <li><strong>Duha:</strong> Spektrální zobrazení s plynulými přechody</li>
+                    <li><strong>Tepelná kamera:</strong> Imitace termovize</li>
+                    <li><strong>Černobílé:</strong> Monochromatické zobrazení</li>
+                </ul>
+                
+                <h6>Export a sdílení:</h6>
+                <ul>
+                    <li>Export snímků ve formátu PNG nebo JPEG</li>
+                    <li>Vysoké rozlišení pro prezentace</li>
+                    <li>Možnost tisku nebo vložení do dokumentů</li>
+                </ul>
+                
+                <div class='alert alert-info mt-3'>
+                    <h6><i class='bi bi-lightbulb'></i> Tip:</h6>
+                    <p class='mb-0'>
+                        Pro nejlepší výsledky používejte moderní prohlížeč s podporou WebGL. 
+                        Pokud se 3D vizualizace nezobrazuje, zkontrolujte nastavení hardwarové akcelerace.
+                    </p>
+                </div>
+            </div>
+            <div class='modal-footer'>
+                <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
+            </div>";
+        
+        JS.InvokeVoidAsync("showModal", "infoModal", content);
+    }
+
+    private WallAssembly GetDemoWallAssembly()
+    {
+        var demoAssembly = new WallAssembly();
+        
+        // Vytvoření demo materiálů
+        var brick = new Material
+        {
+            Name = "Cihlové zdivo",
+            Category = "Zdivo",
+            ThermalConductivity = 0.8,
+            Density = 1800,
+            SpecificHeatCapacity = 840,
+            DiffusionResistanceFactor = 16,
+            PricePerM3 = 0
+        };
+        
+        var insulation = new Material
+        {
+            Name = "Tepelná izolace EPS",
+            Category = "Izolace",
+            ThermalConductivity = 0.04,
+            Density = 20,
+            SpecificHeatCapacity = 1400,
+            DiffusionResistanceFactor = 30,
+            PricePerM3 = 0
+        };
+        
+        var plaster = new Material
+        {
+            Name = "Vápenná omítka",
+            Category = "Omítka",
+            ThermalConductivity = 0.8,
+            Density = 1600,
+            SpecificHeatCapacity = 840,
+            DiffusionResistanceFactor = 6,
+            PricePerM3 = 0
+        };
+        
+        // Přidání vrstev (zevnitř ven)
+        demoAssembly.Layers.Add(new WallLayer { Material = plaster, Thickness = 20 });
+        demoAssembly.Layers.Add(new WallLayer { Material = brick, Thickness = 240 });
+        demoAssembly.Layers.Add(new WallLayer { Material = insulation, Thickness = 100 });
+        demoAssembly.Layers.Add(new WallLayer { Material = plaster, Thickness = 20 });
+        
+        return demoAssembly;
+    }
+
+}
+
+<!-- Template Modal Components -->
+<TemplatesModal OnTemplateSelected="OnTemplateSelected" />
+<TemplateCustomizationModal SelectedTemplate="currentSelectedTemplate" OnTemplateApplied="OnTemplateApplied" /> 

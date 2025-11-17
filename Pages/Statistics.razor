@@ -1,0 +1,284 @@
+@page "/statistics"
+@using ThermalCalculator.Wasm.Models
+@using ThermalCalculator.Wasm.Services
+@inject StatisticsService StatisticsService
+@inject IJSRuntime JS
+
+<PageTitle>Statistiky použití</PageTitle>
+
+<RadzenStack Orientation="Orientation.Vertical" Gap="1rem">
+    <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+        <RadzenText TextStyle="TextStyle.H3" Text="Statistiky použití" />
+        <RadzenStack Orientation="Orientation.Horizontal" Gap="0.5rem">
+            <RadzenButton Icon="refresh" Text="Obnovit" ButtonStyle="ButtonStyle.Light" Click="RefreshStatistics" title="Obnovit statistiky" />
+            <RadzenButton Icon="download" Text="Exportovat" ButtonStyle="ButtonStyle.Warning" Click="ExportStatistics" title="Exportovat statistiky do JSON" />
+            <RadzenButton Icon="delete" Text="Vymazat" ButtonStyle="ButtonStyle.Danger" Click="ClearStatistics" title="Vymazat všechny statistiky" />
+        </RadzenStack>
+    </RadzenStack>
+
+    @if (statistics == null)
+    {
+        <RadzenStack Orientation="Orientation.Vertical" JustifyContent="JustifyContent.Center" AlignItems="AlignItems.Center" Gap="1rem">
+            <RadzenProgressBarCircular ShowValue="false" Size="ProgressBarCircularSize.Large" />
+            <RadzenText Text="Načítání..." />
+        </RadzenStack>
+    }
+    else
+    {
+        <RadzenRow Gap="1rem">
+            <!-- Základní statistiky -->
+            <RadzenColumn Size="6">
+                <RadzenCard>
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Class="rz-mb-4">
+                        <RadzenIcon Icon="trending_up" />
+                        <RadzenText TextStyle="TextStyle.H5" Text="Celkové statistiky" />
+                    </RadzenStack>
+                    <RadzenRow Gap="1rem">
+                        <RadzenColumn Size="6">
+                            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.25rem">
+                                <RadzenText TextStyle="TextStyle.H3" Text="@statistics.TotalCalculationsPerformed.ToString()" Class="rz-color-primary" />
+                                <RadzenText TextStyle="TextStyle.Body2" Text="Celkem výpočtů" Class="rz-color-base-600" />
+                            </RadzenStack>
+                        </RadzenColumn>
+                        <RadzenColumn Size="6">
+                            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.25rem">
+                                <RadzenText TextStyle="TextStyle.H3" Text="@statistics.TotalLayersCreated.ToString()" Class="rz-color-success" />
+                                <RadzenText TextStyle="TextStyle.Body2" Text="Celkem vrstev" Class="rz-color-base-600" />
+                            </RadzenStack>
+                        </RadzenColumn>
+                    </RadzenRow>
+                    <hr style="margin: 1rem 0;" />
+                    <RadzenRow Gap="1rem">
+                        <RadzenColumn Size="6">
+                            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.25rem">
+                                <RadzenText TextStyle="TextStyle.H4" Text="@statistics.AssembliesSaved.ToString()" Class="rz-color-info" />
+                                <RadzenText TextStyle="TextStyle.Body2" Text="Uložených skladeb" Class="rz-color-base-600" />
+                            </RadzenStack>
+                        </RadzenColumn>
+                        <RadzenColumn Size="6">
+                            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.25rem">
+                                <RadzenText TextStyle="TextStyle.H4" Text="@statistics.PdfExportsGenerated.ToString()" Class="rz-color-warning" />
+                                <RadzenText TextStyle="TextStyle.Body2" Text="PDF exportů" Class="rz-color-base-600" />
+                            </RadzenStack>
+                        </RadzenColumn>
+                    </RadzenRow>
+                </RadzenCard>
+            </RadzenColumn>
+
+            <!-- Využití a průměry -->
+            <RadzenColumn Size="6">
+                <RadzenCard>
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Class="rz-mb-4">
+                        <RadzenIcon Icon="calculate" />
+                        <RadzenText TextStyle="TextStyle.H5" Text="Průměrné hodnoty" />
+                    </RadzenStack>
+                    <RadzenStack Orientation="Orientation.Vertical" Gap="1rem">
+                        <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
+                            <RadzenText TextStyle="TextStyle.Body1" Text="Průměrný počet vrstev na výpočet:" />
+                            <RadzenProgressBar ProgressBarStyle="ProgressBarStyle.Primary" 
+                                             Value="@Math.Min(100, statistics.AverageLayersPerCalculation * 10)" 
+                                             ShowValue="false" />
+                            <RadzenText TextStyle="TextStyle.Body2" Text="@($"{statistics.AverageLayersPerCalculation:F1}")" Class="rz-text-align-center" />
+                        </RadzenStack>
+                        
+                        <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
+                            <RadzenText TextStyle="TextStyle.Body1" Text="Průměrný počet výpočtů za den:" />
+                            <RadzenProgressBar ProgressBarStyle="ProgressBarStyle.Success" 
+                                             Value="@Math.Min(100, statistics.AverageCalculationsPerDay * 5)" 
+                                             ShowValue="false" />
+                            <RadzenText TextStyle="TextStyle.Body2" Text="@($"{statistics.AverageCalculationsPerDay:F1}")" Class="rz-text-align-center" />
+                        </RadzenStack>
+                    </RadzenStack>
+
+                    <RadzenRow Gap="1rem">
+                        <RadzenColumn Size="6">
+                            <RadzenStack Orientation="Orientation.Vertical" Gap="0.25rem">
+                                <RadzenText TextStyle="TextStyle.Body2" Text="Celkem dnů používání:" Class="rz-color-base-600" />
+                                <RadzenText TextStyle="TextStyle.H6" Text="@statistics.TotalUsageDays.ToString()" />
+                            </RadzenStack>
+                        </RadzenColumn>
+                        <RadzenColumn Size="6">
+                            <RadzenStack Orientation="Orientation.Vertical" Gap="0.25rem">
+                                <RadzenText TextStyle="TextStyle.Body2" Text="Použitých příkladů:" Class="rz-color-base-600" />
+                                <RadzenText TextStyle="TextStyle.H6" Text="@statistics.ExamplesUsed.ToString()" />
+                            </RadzenStack>
+                        </RadzenColumn>
+                    </RadzenRow>
+                </RadzenCard>
+            </RadzenColumn>
+        </RadzenRow>
+
+        <RadzenRow Gap="1rem">
+            <!-- Nejpoužívanější materiály -->
+            <RadzenColumn Size="6">
+                <RadzenCard>
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Class="rz-mb-4">
+                        <RadzenIcon Icon="star" />
+                        <RadzenText TextStyle="TextStyle.H5" Text="Nejpoužívanější materiály" />
+                    </RadzenStack>
+                    @if (topMaterials.Any())
+                    {
+                        <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
+                            @foreach (var (material, count) in topMaterials.Take(10))
+                            {
+                                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+                                    <RadzenText TextStyle="TextStyle.Body1" Text="@material" Class="rz-text-truncate" title="@material" />
+                                    <RadzenBadge BadgeStyle="BadgeStyle.Primary" Text="@($"{count}×")" />
+                                </RadzenStack>
+                            }
+                        </RadzenStack>
+                    }
+                    else
+                    {
+                        <RadzenText TextStyle="TextStyle.Body1" Text="Zatím nebyl použit žádný materiál." Class="rz-color-base-600" />
+                    }
+                </RadzenCard>
+            </RadzenColumn>
+
+            <!-- Nejpoužívanější kategorie -->
+            <RadzenColumn Size="6">
+                <RadzenCard>
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Class="rz-mb-4">
+                        <RadzenIcon Icon="collections" />  
+                        <RadzenText TextStyle="TextStyle.H5" Text="Nejpoužívanější kategorie" />
+                    </RadzenStack>
+                    @if (topCategories.Any())
+                    {
+                        <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
+                            @foreach (var (category, count) in topCategories)
+                            {
+                                <RadzenStack Orientation="Orientation.Horizontal" JustifyContent="JustifyContent.SpaceBetween" AlignItems="AlignItems.Center">
+                                    <RadzenText TextStyle="TextStyle.Body1" Text="@category" />
+                                    <RadzenBadge BadgeStyle="BadgeStyle.Success" Text="@($"{count}×")" />
+                                </RadzenStack>
+                            }
+                        </RadzenStack>
+                    }
+                    else
+                    {
+                        <RadzenText TextStyle="TextStyle.Body1" Text="Zatím nebyla použita žádná kategorie." Class="rz-color-base-600" />
+                    }
+                </RadzenCard>
+            </RadzenColumn>
+        </RadzenRow>
+
+        @if (statistics.MostUsedMaterial != null || statistics.MostUsedCategory != null)
+        {
+            <RadzenRow Gap="1rem">
+                <RadzenColumn Size="12">
+                    <RadzenCard>
+                        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Class="rz-mb-4">
+                            <RadzenIcon Icon="emoji_events" />
+                            <RadzenText TextStyle="TextStyle.H5" Text="Nejoblíbenější volby" />
+                        </RadzenStack>
+                        <RadzenRow Gap="1rem">
+                            @if (statistics.MostUsedMaterial != null)
+                            {
+                                <RadzenColumn Size="6">
+                                    <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
+                                        <RadzenText TextStyle="TextStyle.H6" Text="Nejpoužívanější materiál:" />
+                                        <RadzenText TextStyle="TextStyle.H5" Text="@statistics.MostUsedMaterial" Class="rz-color-primary" />
+                                    </RadzenStack>
+                                </RadzenColumn>
+                            }
+                            @if (statistics.MostUsedCategory != null)
+                            {
+                                <RadzenColumn Size="6">
+                                    <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem">
+                                        <RadzenText TextStyle="TextStyle.H6" Text="Nejpoužívanější kategorie:" />
+                                        <RadzenText TextStyle="TextStyle.H5" Text="@statistics.MostUsedCategory" Class="rz-color-success" />
+                                    </RadzenStack>
+                                </RadzenColumn>
+                            }
+                        </RadzenRow>
+                    </RadzenCard>
+                </RadzenColumn>
+            </RadzenRow>
+        }
+
+        @if (statistics.FirstUsage != DateTime.MinValue)
+        {
+            <RadzenRow Gap="1rem">
+                <RadzenColumn Size="12">
+                    <RadzenCard>
+                        <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.5rem">
+                            <RadzenText TextStyle="TextStyle.Body1" Class="rz-color-base-600">
+                                Aplikace poprvé použita: <strong>@statistics.FirstUsage.ToString("dd.MM.yyyy HH:mm")</strong>
+                            </RadzenText>
+                            <RadzenText TextStyle="TextStyle.Body1" Class="rz-color-base-600">
+                                Poslední použití: <strong>@statistics.LastUsage.ToString("dd.MM.yyyy HH:mm")</strong>
+                            </RadzenText>
+                        </RadzenStack>
+                    </RadzenCard>
+                </RadzenColumn>
+            </RadzenRow>
+        }
+    }
+</RadzenStack>
+
+@code {
+    private UsageStatistics? statistics;
+    private List<(string Material, int Count)> topMaterials = new();
+    private List<(string Category, int Count)> topCategories = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStatistics();
+    }
+
+    private async Task LoadStatistics()
+    {
+        try
+        {
+            statistics = await StatisticsService.GetStatisticsAsync();
+            topMaterials = await StatisticsService.GetTopMaterialsAsync(10);
+            topCategories = await StatisticsService.GetTopCategoriesAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"Chyba při načítání statistik: {ex.Message}");
+            await JS.InvokeVoidAsync("blazorAlert", "Chyba při načítání statistik.");
+        }
+    }
+
+    private async Task RefreshStatistics()
+    {
+        await LoadStatistics();
+        await JS.InvokeVoidAsync("blazorAlert", "Statistiky byly aktualizovány.");
+    }
+
+    private async Task ExportStatistics()
+    {
+        try
+        {
+            var jsonData = await StatisticsService.ExportStatisticsAsync();
+            var fileName = $"statistiky_vyuziti_{DateTime.Now:yyyyMMdd_HHmmss}.json";
+            
+            await JS.InvokeVoidAsync("downloadFile", 
+                Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(jsonData)), 
+                "application/json", 
+                fileName);
+                
+            await JS.InvokeVoidAsync("blazorAlert", "Statistiky byly exportovány.");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"Chyba při exportu statistik: {ex.Message}");
+            await JS.InvokeVoidAsync("blazorAlert", "Chyba při exportu statistik.");
+        }
+    }
+
+    private async Task ClearStatistics()
+    {
+        var confirmed = await JS.InvokeAsync<bool>("blazorConfirm", 
+            "Opravdu chcete vymazat všechny statistiky? Tato akce je nevratná.");
+            
+        if (confirmed)
+        {
+            await StatisticsService.ClearStatisticsAsync();
+            await LoadStatistics();
+            await JS.InvokeVoidAsync("blazorAlert", "Všechny statistiky byly vymazány.");
+        }
+    }
+}

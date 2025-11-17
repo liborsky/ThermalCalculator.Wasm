@@ -1,0 +1,126 @@
+@using ThermalCalculator.Wasm.Models
+@using ThermalCalculator.Wasm.Services
+
+<!-- Template Customization Modal -->
+<div class="modal fade" id="templateCustomizationModal" tabindex="-1" aria-labelledby="templateCustomizationModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            @if (SelectedTemplate != null && SelectedTemplate.Template != null)
+            {
+                <div class="modal-header">
+                    <h5 class="modal-title" id="templateCustomizationModalLabel">
+                        <i class="@SelectedTemplate.Template.Icon"></i> @SelectedTemplate.Template.Name
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" title="Zavřít"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted mb-3">@SelectedTemplate.Template.Description</p>
+                    
+                    <div class="alert alert-info">
+                        <h6><i class="bi bi-info-circle"></i> Úprava skladby</h6>
+                        <p class="mb-2">Upravte tloušťky vrstev podle svých požadavků:</p>
+                        <div class="table-responsive">
+                            <table class="table table-sm template-preview-table mb-0">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 50px;">Pořadí</th>
+                                        <th>Materiál</th>
+                                        <th style="width: 120px;">Tloušťka [mm]</th>
+                                        <th style="width: 80px;">Povolit</th>
+                                        <th>Popis</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @for (int i = 0; i < SelectedTemplate.Layers.Count; i++)
+                                    {
+                                        var layer = SelectedTemplate.Layers[i];
+                                        var index = i;
+                                        <tr>
+                                            <td class="text-center">
+                                                <span class="badge bg-primary">@(layer.TemplateLayer.Order)</span>
+                                            </td>
+                                            <td>
+                                                <strong>@layer.TemplateLayer.MaterialName</strong>
+                                            </td>
+                                            <td>
+                                                @if (layer.TemplateLayer.IsAdjustable)
+                                                {
+                                                    <input type="number" 
+                                                           class="form-control form-control-sm" 
+                                                           @bind="layer.SelectedThickness"
+                                                           min="@layer.TemplateLayer.MinThickness"
+                                                           max="@layer.TemplateLayer.MaxThickness"
+                                                           step="1" />
+                                                    @if (layer.TemplateLayer.MinThickness > 0 && layer.TemplateLayer.MaxThickness > 0)
+                                                    {
+                                                        <small class="text-muted">
+                                                            @($"{layer.TemplateLayer.MinThickness:F0}-{layer.TemplateLayer.MaxThickness:F0}")
+                                                        </small>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-secondary">@($"{layer.SelectedThickness:F1}")</span>
+                                                    <small class="text-muted d-block">Pevná hodnota</small>
+                                                }
+                                            </td>
+                                            <td class="text-center">
+                                                <div class="form-check">
+                                                    <input class="form-check-input" 
+                                                           type="checkbox" 
+                                                           @bind="layer.IsEnabled"
+                                                           id="enabled_@index" />
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <small class="text-muted">@layer.TemplateLayer.Description</small>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <!-- Summary -->
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>Orientační cena:</strong> @($"{SelectedTemplate.Template.EstimatedCost:F0} Kč/m²")
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Aktivních vrstev:</strong> @SelectedTemplate.Layers.Count(l => l.IsEnabled)/@SelectedTemplate.Layers.Count
+                        </div>
+                    </div>
+                    
+                    @if (!string.IsNullOrEmpty(SelectedTemplate.Template.Notes))
+                    {
+                        <div class="mt-3">
+                            <small class="text-info">
+                                <i class="bi bi-lightbulb"></i> @SelectedTemplate.Template.Notes
+                            </small>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" title="Zrušit">Zrušit</button>
+                    <button type="button" class="btn btn-primary" @onclick="ApplyTemplate" title="Aplikovat vybranou šablonu">
+                        <i class="bi bi-check-lg"></i> Aplikovat šablonu
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public SelectedTemplate? SelectedTemplate { get; set; }
+    [Parameter] public EventCallback<SelectedTemplate> OnTemplateApplied { get; set; }
+
+    private async Task ApplyTemplate()
+    {
+        if (SelectedTemplate != null)
+        {
+            await OnTemplateApplied.InvokeAsync(SelectedTemplate);
+        }
+    }
+}

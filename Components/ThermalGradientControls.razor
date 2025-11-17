@@ -1,0 +1,333 @@
+@using ThermalCalculator.Wasm.Models
+
+<div class="visualization-controls">
+    <h6><i class="bi bi-sliders"></i> Ovládání vizualizace</h6>
+    
+    <!-- Módy vizualizace -->
+    <div class="control-group">
+        <label class="control-label">Režim zobrazení</label>
+        <div class="visualization-mode-buttons">
+            <button type="button"
+                    class="visualization-mode-btn @(Config.Mode == VisualizationMode.Temperature ? "active" : "")"
+                    @onclick="() => ChangeMode(VisualizationMode.Temperature)"
+                    title="Zobrazit teplotní gradienty">
+                <i class="bi bi-thermometer-half"></i>
+                Teploty
+            </button>
+            <button type="button"
+                    class="visualization-mode-btn @(Config.Mode == VisualizationMode.Materials ? "active" : "")"
+                    @onclick="() => ChangeMode(VisualizationMode.Materials)"
+                    title="Zobrazit materiálové vrstvy">
+                <i class="bi bi-layers"></i>
+                Materiály
+            </button>
+            <button type="button"
+                    class="visualization-mode-btn @(Config.Mode == VisualizationMode.Condensation ? "active" : "")"
+                    @onclick="() => ChangeMode(VisualizationMode.Condensation)"
+                    title="Zobrazit kondenzační zóny">
+                <i class="bi bi-droplet"></i>
+                Kondenzace
+            </button>
+            <button type="button"
+                    class="visualization-mode-btn @(Config.Mode == VisualizationMode.HeatFlow ? "active" : "")"
+                    @onclick="() => ChangeMode(VisualizationMode.HeatFlow)"
+                    title="Zobrazit tepelný tok">
+                <i class="bi bi-arrow-right"></i>
+                Tepelný tok
+            </button>
+            <button type="button"
+                    class="visualization-mode-btn @(Config.Mode == VisualizationMode.Dimensional ? "active" : "")"
+                    @onclick="() => ChangeMode(VisualizationMode.Dimensional)"
+                    title="Zobrazit rozměry vrstev">
+                <i class="bi bi-rulers"></i>
+                Rozměry
+            </button>
+        </div>
+    </div>
+
+    <!-- Barevné schéma (jen pro teplotní mód) -->
+    @if (Config.Mode == VisualizationMode.Temperature)
+    {
+        <div class="control-group">
+            <label class="control-label">Barevné schéma</label>
+            <div class="color-scheme-selector">
+                <div class="color-scheme-option @(Config.TemperatureColorScheme == ThermalCalculator.Wasm.Models.ColorScheme.BlueRedScale ? "active" : "")"
+                     @onclick="() => ChangeColorScheme(ThermalCalculator.Wasm.Models.ColorScheme.BlueRedScale)">
+                    <div class="color-scheme-preview blue-red"></div>
+                    Modra-Červená
+                </div>
+                <div class="color-scheme-option @(Config.TemperatureColorScheme == ThermalCalculator.Wasm.Models.ColorScheme.Rainbow ? "active" : "")"
+                     @onclick="() => ChangeColorScheme(ThermalCalculator.Wasm.Models.ColorScheme.Rainbow)">
+                    <div class="color-scheme-preview rainbow"></div>
+                    Duha
+                </div>
+                <div class="color-scheme-option @(Config.TemperatureColorScheme == ThermalCalculator.Wasm.Models.ColorScheme.Thermal ? "active" : "")"
+                     @onclick="() => ChangeColorScheme(ThermalCalculator.Wasm.Models.ColorScheme.Thermal)">
+                    <div class="color-scheme-preview thermal"></div>
+                    Tepelná kamera
+                </div>
+                <div class="color-scheme-option @(Config.TemperatureColorScheme == ThermalCalculator.Wasm.Models.ColorScheme.Monochrome ? "active" : "")"
+                     @onclick="() => ChangeColorScheme(ThermalCalculator.Wasm.Models.ColorScheme.Monochrome)">
+                    <div class="color-scheme-preview monochrome"></div>
+                    Černobílé
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Přepínače zobrazení -->
+    <div class="control-group">
+        <label class="control-label">Zobrazení</label>
+        
+        <div class="visualization-toggle">
+            <input type="checkbox" 
+                   id="showCondensation" 
+                   @bind="Config.ShowCondensationZones"
+                   @bind:after="OnConfigChangedInternal" />
+            <label for="showCondensation">Kondenzační zóny</label>
+        </div>
+        
+        <div class="visualization-toggle">
+            <input type="checkbox" 
+                   id="showTempLabels" 
+                   @bind="Config.ShowTemperatureLabels"
+                   @bind:after="OnConfigChangedInternal" />
+            <label for="showTempLabels">Teplotní popisky</label>
+        </div>
+        
+        <div class="visualization-toggle">
+            <input type="checkbox" 
+                   id="showMatLabels" 
+                   @bind="Config.ShowMaterialLabels"
+                   @bind:after="OnConfigChangedInternal" />
+            <label for="showMatLabels">Materiálové popisky</label>
+        </div>
+    </div>
+
+    <!-- Animace -->
+    <div class="control-group">
+        <label class="control-label">Animace</label>
+        
+        <div class="visualization-toggle">
+            <input type="checkbox" 
+                   id="enableAnimation" 
+                   @bind="Config.EnableAnimation"
+                   @bind:after="OnConfigChangedInternal" />
+            <label for="enableAnimation">Povolit animace</label>
+        </div>
+        
+        @if (Config.EnableAnimation)
+        {
+            <div class="slider-container">
+                <label class="control-label">
+                    Rychlost animace
+                    <span class="slider-value">@($"{Config.AnimationSpeed:F1}x")</span>
+                </label>
+                <input type="range" 
+                       class="form-range visualization-slider"
+                       min="0.1" 
+                       max="3.0" 
+                       step="0.1"
+                       @bind="Config.AnimationSpeed"
+                       @bind:after="OnConfigChangedInternal" />
+            </div>
+        }
+    </div>
+
+    <!-- Klimatické podmínky -->
+    @if (WallData?.Climate != null)
+    {
+        <div class="control-group">
+            <label class="control-label">Klimatické podmínky</label>
+            
+            <div class="row g-2">
+                <div class="col-6">
+                    <label class="form-label">Vnitřní teplota</label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" 
+                               class="form-control"
+                               min="-10" 
+                               max="30" 
+                               step="1"
+                               @bind="internalTemperature"
+                               @bind:after="OnClimateChanged" />
+                        <span class="input-group-text">°C</span>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <label class="form-label">Vnější teplota</label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" 
+                               class="form-control"
+                               min="-40" 
+                               max="20" 
+                               step="1"
+                               @bind="externalTemperature"
+                               @bind:after="OnClimateChanged" />
+                        <span class="input-group-text">°C</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row g-2 mt-2">
+                <div class="col-6">
+                    <label class="form-label">Vnitřní vlhkost</label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" 
+                               class="form-control"
+                               min="20" 
+                               max="80" 
+                               step="5"
+                               @bind="internalHumidity"
+                               @bind:after="OnClimateChanged" />
+                        <span class="input-group-text">%</span>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <label class="form-label">Vnější vlhkost</label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" 
+                               class="form-control"
+                               min="60" 
+                               max="100" 
+                               step="5"
+                               @bind="externalHumidity"
+                               @bind:after="OnClimateChanged" />
+                        <span class="input-group-text">%</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Přednastavené podmínky -->
+            <div class="mt-3">
+                <div class="d-flex gap-2 flex-wrap">
+                    <button type="button"
+                            class="btn btn-outline-primary btn-sm"
+                            @onclick="() => SetClimatePreset(20, -15, 50, 80)"
+                            title="Nastavit zimní podmínky podle ČSN">
+                        Zima ČSN
+                    </button>
+                    <button type="button"
+                            class="btn btn-outline-primary btn-sm"
+                            @onclick="() => SetClimatePreset(26, 35, 60, 70)"
+                            title="Nastavit letní podmínky">
+                        Léto
+                    </button>
+                    <button type="button"
+                            class="btn btn-outline-primary btn-sm"
+                            @onclick="() => SetClimatePreset(20, 5, 50, 85)"
+                            title="Nastavit podmínky přechodného období">
+                        Přechodné období
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Rychlé akce -->
+    <div class="control-group">
+        <label class="control-label">Rychlé akce</label>
+        <div class="d-flex gap-2 flex-wrap">
+            <button type="button"
+                    class="btn btn-outline-primary btn-sm"
+                    @onclick="() => ResetToOptimalView()"
+                    title="Nastavit optimální pohled">
+                <i class="bi bi-eye"></i> Optimální pohled
+            </button>
+            <button type="button"
+                    class="btn btn-outline-secondary btn-sm"
+                    @onclick="() => ShowTopView()"
+                    title="Zobrazit pohled shora">
+                <i class="bi bi-arrow-up"></i> Pohled shora
+            </button>
+            <button type="button"
+                    class="btn btn-outline-secondary btn-sm"
+                    @onclick="() => ShowSideView()"
+                    title="Zobrazit boční pohled">
+                <i class="bi bi-arrow-right"></i> Boční pohled
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public VisualizationConfig Config { get; set; } = new();
+    [Parameter] public EventCallback<VisualizationConfig> OnConfigChanged { get; set; }
+    [Parameter] public WallVisualizationData? WallData { get; set; }
+
+    // Klimatické podmínky pro editaci
+    private double internalTemperature = 20.0;
+    private double externalTemperature = -15.0;
+    private double internalHumidity = 50.0;
+    private double externalHumidity = 80.0;
+
+    protected override void OnParametersSet()
+    {
+        if (WallData?.Climate != null)
+        {
+            internalTemperature = WallData.Climate.InternalTemperature;
+            externalTemperature = WallData.Climate.ExternalTemperature;
+            internalHumidity = WallData.Climate.InternalHumidity;
+            externalHumidity = WallData.Climate.ExternalHumidity;
+        }
+    }
+
+    private async Task ChangeMode(VisualizationMode mode)
+    {
+        Config.Mode = mode;
+        await OnConfigChanged.InvokeAsync(Config);
+    }
+
+    private async Task ChangeColorScheme(ThermalCalculator.Wasm.Models.ColorScheme scheme)
+    {
+        Config.TemperatureColorScheme = scheme;
+        await OnConfigChanged.InvokeAsync(Config);
+    }
+
+    private async Task OnConfigChangedInternal()
+    {
+        await OnConfigChanged.InvokeAsync(Config);
+    }
+
+    private async Task OnClimateChanged()
+    {
+        // Aktualizace klimatických podmínek
+        if (WallData?.Climate != null)
+        {
+            WallData.Climate.InternalTemperature = internalTemperature;
+            WallData.Climate.ExternalTemperature = externalTemperature;
+            WallData.Climate.InternalHumidity = internalHumidity;
+            WallData.Climate.ExternalHumidity = externalHumidity;
+        }
+        
+        await OnConfigChanged.InvokeAsync(Config);
+    }
+
+    private async Task SetClimatePreset(double intTemp, double extTemp, double intHum, double extHum)
+    {
+        internalTemperature = intTemp;
+        externalTemperature = extTemp;
+        internalHumidity = intHum;
+        externalHumidity = extHum;
+        
+        await OnClimateChanged();
+    }
+
+    private async Task ResetToOptimalView()
+    {
+        // TODO: Implementace resetování na optimální pohled
+        await OnConfigChanged.InvokeAsync(Config);
+    }
+
+    private async Task ShowTopView()
+    {
+        // TODO: Implementace pohledu shora
+        await OnConfigChanged.InvokeAsync(Config);
+    }
+
+    private async Task ShowSideView()
+    {
+        // TODO: Implementace bočního pohledu
+        await OnConfigChanged.InvokeAsync(Config);
+    }
+}

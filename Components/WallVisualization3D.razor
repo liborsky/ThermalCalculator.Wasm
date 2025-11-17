@@ -1,0 +1,376 @@
+@using ThermalCalculator.Wasm.Models
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="row">
+    <div class="col-lg-8">
+        <!-- Vysvětlení ovládání -->
+        <div class="alert alert-light border mb-3">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h6 class="mb-1"><i class="bi bi-mouse"></i> Ovládání 3D pohledu</h6>
+                    <small class="text-muted">
+                        <strong>Rotace:</strong> Levé tlačítko myši • 
+                        <strong>Posun:</strong> Pravé tlačítko • 
+                        <strong>Zoom:</strong> Kolečko myši
+                    </small>
+                </div>
+                <div class="col-md-4 text-end">
+                    @if (isInitialized && !hasError)
+                    {
+                        <span class="badge bg-success"><i class="bi bi-check-circle"></i> WebGL aktivní</span>
+                    }
+                    else if (hasError)
+                    {
+                        <span class="badge bg-danger"><i class="bi bi-x-circle"></i> Chyba WebGL</span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-warning"><i class="bi bi-hourglass"></i> Načítání...</span>
+                    }
+                </div>
+            </div>
+        </div>
+        
+        <!-- 3D Scéna -->
+        <div class="visualization-3d-container" id="@containerId" style="height: 500px; min-height: 500px; border: 2px solid #007bff;">
+            @if (isLoading)
+            {
+                <div class="visualization-loading">
+                    <div class="visualization-loading-spinner"></div>
+                    <div class="visualization-loading-text">Načítání 3D vizualizace...</div>
+                </div>
+            }
+            @if (hasError)
+            {
+                <div class="visualization-error">
+                    <div class="visualization-error-icon">&#9888;</div>
+                    <div class="visualization-error-text">
+                        <strong>Chyba při načítání 3D vizualizace</strong><br>
+                        @errorMessage<br>
+                        <small>Zkontrolujte, zda váš prohlížeč podporuje WebGL.</small>
+                    </div>
+                </div>
+            }
+            @if (isInitialized && !hasError && (WallAssembly == null || WallAssembly.Layers.Count == 0))
+            {
+                <div class="visualization-placeholder">
+                    <div class="placeholder-content">
+                        <i class="bi bi-layers placeholder-icon"></i>
+                        <h5>Přidejte vrstvy pro zobrazení 3D modelu</h5>
+                        <p class="text-muted">
+                            3D vizualizace ukáže řez konstrukcí s teplotními gradienty,
+                            kondenzačními zónami a detaily materiálů.
+                        </p>
+                    </div>
+                </div>
+            }
+        </div>
+        
+        <!-- Export tlačítka -->
+        @if (isInitialized && !hasError)
+        {
+            <div class="export-buttons mt-3">
+                <button type="button" class="export-btn" @onclick='() => ExportImage("png")' title="Exportovat jako PNG">
+                    <i class="bi bi-image"></i> Export PNG
+                </button>
+                <button type="button" class="export-btn" @onclick='() => ExportImage("jpeg")' title="Exportovat jako JPEG">
+                    <i class="bi bi-file-earmark-image"></i> Export JPEG
+                </button>
+                <button type="button" class="export-btn" @onclick="ResetCamera" title="Resetovat pohled kamery">
+                    <i class="bi bi-arrow-clockwise"></i> Reset pohledu
+                </button>
+            </div>
+        }
+    </div>
+    
+    <div class="col-lg-4">
+        <!-- Ovládací prvky -->
+        <ThermalGradientControls 
+            Config="config" 
+            OnConfigChanged="OnConfigChanged"
+            WallData="wallVisualizationData" />
+        
+        <!-- Legenda -->
+        <VisualizationLegend 
+            Config="config"
+            WallData="wallVisualizationData" />
+        
+        <!-- Informační panel -->
+        @if (wallVisualizationData != null)
+        {
+            <div class="visualization-info">
+                <h6><i class="bi bi-info-circle"></i> Informace o konstrukci</h6>
+                <div class="info-item">
+                    <span class="info-label">Celková tloušťka:</span>
+                    <span class="info-value">@($"{wallVisualizationData.TotalThickness:F0} mm")</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Počet vrstev:</span>
+                    <span class="info-value">@wallVisualizationData.Layers.Count</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Teplotní rozdíl:</span>
+                    <span class="info-value">@($"{wallVisualizationData.TemperatureData.TemperatureRange:F1} °C")</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Kondenzační zóny:</span>
+                    <span class="info-value">@wallVisualizationData.CondensationZones.Count</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Klimatické podmínky:</span>
+                    <span class="info-value">@($"{wallVisualizationData.Climate.InternalTemperature:F0}°C / {wallVisualizationData.Climate.ExternalTemperature:F0}°C")</span>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public WallAssembly? WallAssembly { get; set; }
+    [Parameter] public EventCallback<string> OnError { get; set; }
+
+    private string containerId = $"visualization3d_{Guid.NewGuid():N}";
+    private bool isInitialized = false;
+    private bool isLoading = true;
+    private bool hasError = false;
+    private string errorMessage = string.Empty;
+    
+    private WallVisualizationData? wallVisualizationData;
+    private VisualizationConfig config = new();
+    private DotNetObjectReference<WallVisualization3D>? selfReference;
+
+    protected override async Task OnInitializedAsync()
+    {
+        selfReference = DotNetObjectReference.Create(this);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Spustit inicializaci pouze při prvním renderu
+        if (firstRender && !isInitialized)
+        {
+            await InitializeVisualization();
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (WallAssembly != null && isInitialized)
+        {
+            await UpdateVisualization();
+        }
+    }
+
+    private async Task InitializeVisualization()
+    {
+        try
+        {
+            isLoading = true;
+            hasError = false;
+            StateHasChanged();
+
+            // Kontrola podpory WebGL
+            var hasWebGL = await JS.InvokeAsync<bool>("eval", 
+                "!!(window.WebGLRenderingContext && document.createElement('canvas').getContext('webgl'))");
+            
+            if (!hasWebGL)
+            {
+                throw new Exception("Váš prohlížeč nepodporuje WebGL, které je potřebné pro 3D vizualizaci.");
+            }
+
+            // Kontrola Three.js
+            var hasThreeJS = await JS.InvokeAsync<bool>("eval", "typeof THREE !== 'undefined'");
+            if (!hasThreeJS)
+            {
+                throw new Exception("Three.js knihovna není načtena. Zkuste obnovit stránku.");
+            }
+
+            // Inicializace 3D scény
+            var success = await JS.InvokeAsync<bool>("initWallVisualization3D", containerId);
+            
+            if (!success)
+            {
+                throw new Exception("Nepodařilo se inicializovat 3D scénu.");
+            }
+
+            isInitialized = true;
+            
+            // Aktualizace dat pokud jsou k dispozici
+            if (WallAssembly != null)
+            {
+                await UpdateVisualization();
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"3D Visualization Error: {ex.Message}");
+            hasError = true;
+            errorMessage = ex.Message;
+            await OnError.InvokeAsync(ex.Message);
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task UpdateVisualization()
+    {
+        if (!isInitialized || WallAssembly == null) return;
+
+        try
+        {
+            // Příprava dat pro vizualizaci
+            wallVisualizationData = WallAssembly.GetVisualizationData(config);
+            
+            // Serializace dat pro JavaScript
+            var wallDataJson = System.Text.Json.JsonSerializer.Serialize(wallVisualizationData, new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+                WriteIndented = false
+            });
+
+            // Aktualizace 3D scény
+            var success = await JS.InvokeAsync<bool>("updateWallVisualization3D", wallDataJson);
+            
+            if (!success)
+            {
+                throw new Exception("Nepodařilo se aktualizovat 3D vizualizaci.");
+            }
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            hasError = true;
+            errorMessage = $"Chyba při aktualizaci vizualizace: {ex.Message}";
+            await OnError.InvokeAsync(errorMessage);
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnConfigChanged(VisualizationConfig newConfig)
+    {
+        config = newConfig;
+        
+        if (isInitialized)
+        {
+            try
+            {
+                // Serializace konfigurace pro JavaScript
+                var configJson = System.Text.Json.JsonSerializer.Serialize(config, new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+                });
+
+                // Aktualizace konfigurace v 3D scéně
+                await JS.InvokeVoidAsync("updateVisualization3DConfig", configJson);
+                
+                // Pokud je potřeba, aktualizujeme i data
+                if (WallAssembly != null)
+                {
+                    await UpdateVisualization();
+                }
+            }
+            catch (Exception ex)
+            {
+                await OnError.InvokeAsync($"Chyba při změně konfigurace: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task ExportImage(string format)
+    {
+        if (!isInitialized) return;
+
+        try
+        {
+            var dataUrl = await JS.InvokeAsync<string>("exportVisualization3DImage", format, 1.0);
+            
+            if (!string.IsNullOrEmpty(dataUrl))
+            {
+                // Stažení obrázku
+                var fileName = $"thermal_visualization_{DateTime.Now:yyyyMMdd_HHmmss}.{format}";
+                await JS.InvokeVoidAsync("eval", $@"
+                    const link = document.createElement('a');
+                    link.download = '{fileName}';
+                    link.href = '{dataUrl}';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                ");
+            }
+        }
+        catch (Exception ex)
+        {
+            await OnError.InvokeAsync($"Chyba při exportu obrázku: {ex.Message}");
+        }
+    }
+
+    private async Task ResetCamera()
+    {
+        if (!isInitialized) return;
+
+        try
+        {
+            await JS.InvokeVoidAsync("eval", @"
+                if (window.wallVisualization3D) {
+                    window.wallVisualization3D.centerCameraOnWall();
+                }
+            ");
+        }
+        catch (Exception ex)
+        {
+            await OnError.InvokeAsync($"Chyba při resetování kamery: {ex.Message}");
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnVisualizationClick(string objectType, string objectData)
+    {
+        // Handler pro kliknutí na 3D objekty
+        try
+        {
+            // TODO: Implementace interakce s 3D objekty
+            // Například zobrazení detailních informací o vrstvě
+        }
+        catch (Exception ex)
+        {
+            await OnError.InvokeAsync($"Chyba při zpracování kliknutí: {ex.Message}");
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnVisualizationHover(string objectType, string objectData, double x, double y)
+    {
+        // Handler pro hover nad 3D objekty
+        try
+        {
+            // TODO: Implementace tooltip systému
+        }
+        catch (Exception ex)
+        {
+            await OnError.InvokeAsync($"Chyba při zpracování hover: {ex.Message}");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (isInitialized)
+            {
+                await JS.InvokeVoidAsync("disposeWallVisualization3D");
+            }
+        }
+        catch (Exception)
+        {
+            // Ignorování chyb při dispose
+        }
+        
+        selfReference?.Dispose();
+    }
+}

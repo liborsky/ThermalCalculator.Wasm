@@ -1,0 +1,192 @@
+@page "/examples"
+@using ThermalCalculator.Wasm.Models
+@using ThermalCalculator.Wasm.Services
+@inject MaterialService MaterialService
+@inject NavigationManager Navigation
+
+<PageTitle>Příklady skladeb zdi</PageTitle>
+
+<RadzenStack Orientation="Orientation.Vertical" Gap="1rem">
+    <RadzenText TextStyle="TextStyle.H3" Text="Příklady běžných skladeb zdi" />
+    
+    <RadzenRow Gap="1rem">
+        @foreach (var example in wallExamples)
+        {
+            <RadzenColumn Size="6">
+                <RadzenCard style="height: 100%;">
+                    <RadzenText TextStyle="TextStyle.H5" Text="@example.Name" Class="rz-mb-3" />
+                    <RadzenStack Orientation="Orientation.Vertical" Gap="0.5rem" Class="rz-mb-3">
+                        <RadzenText TextStyle="TextStyle.Body1" Text="Vrstvy (od vnitřku):" Style="font-weight: bold;" />
+                        <RadzenStack Orientation="Orientation.Vertical" Gap="0.25rem">
+                            @foreach (var layer in example.Layers)
+                            {
+                                <RadzenText TextStyle="TextStyle.Body2">
+                                    <span class="rz-color-base-600">@layer.Thickness mm</span> - @layer.Material.Name
+                                </RadzenText>
+                            }
+                        </RadzenStack>
+                    </RadzenStack>
+                    
+                    <RadzenRow Gap="1rem" Class="rz-mb-3">
+                        <RadzenColumn Size="6">
+                            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.25rem">
+                                <RadzenText TextStyle="TextStyle.Body2" Text="Tepelný odpor" Class="rz-color-base-600" />
+                                <RadzenText TextStyle="TextStyle.H5" Text="@($"{example.TotalThermalResistance:F2} m²·K/W")" Class="rz-color-primary" />
+                            </RadzenStack>
+                        </RadzenColumn>
+                        <RadzenColumn Size="6">
+                            <RadzenStack Orientation="Orientation.Vertical" AlignItems="AlignItems.Center" Gap="0.25rem">
+                                <RadzenText TextStyle="TextStyle.Body2" Text="Součinitel U" Class="rz-color-base-600" />
+                                <RadzenText TextStyle="TextStyle.H5" Text="@($"{example.ThermalTransmittance:F3} W/(m²·K)")" Class="rz-color-success" />
+                            </RadzenStack>
+                        </RadzenColumn>
+                    </RadzenRow>
+                    
+                    <RadzenBadge BadgeStyle="@GetRatingBadgeStyle(example.ThermalTransmittance)" Text="@GetRating(example.ThermalTransmittance)" Class="rz-mb-3" />
+                    
+                    <RadzenButton Icon="arrow_forward" Text="Použít tuto skládku" 
+                                ButtonStyle="ButtonStyle.Primary" Size="ButtonSize.Small" 
+                                Click="() => LoadExample(example)" Style="margin-top: auto;" />
+                </RadzenCard>
+            </RadzenColumn>
+        }
+    </RadzenRow>
+    
+    <RadzenLink Path="/thermal-resistance" Text="Zpět na kalkulačku" Icon="arrow_back" ButtonVariant="Variant.Outlined" />
+</RadzenStack>
+
+@code {
+    private List<WallAssembly> wallExamples = new();
+    
+    protected override void OnInitialized()
+    {
+        var materials = MaterialService.GetCommonMaterials();
+        
+        // Příklad 1: Cihlová zeď s izolací
+        var example1 = new WallAssembly
+        {
+            Name = "Cihlová zeď s izolací",
+            Layers = new List<WallLayer>
+            {
+                new() { Material = materials.First(m => m.Name == "Vápenná omítka"), Thickness = 15 },
+                new() { Material = materials.First(m => m.Name == "Cihla plná"), Thickness = 300 },
+                new() { Material = materials.First(m => m.Name == "Polystyren EPS 15 kg/m³"), Thickness = 120 },
+                new() { Material = materials.First(m => m.Name == "Cementová omítka"), Thickness = 20 }
+            }
+        };
+        
+        // Příklad 2: Pórobetonová zeď
+        var example2 = new WallAssembly
+        {
+            Name = "Pórobetonová zeď",
+            Layers = new List<WallLayer>
+            {
+                new() { Material = materials.First(m => m.Name == "Vápenná omítka"), Thickness = 15 },
+                new() { Material = materials.First(m => m.Name == "Pórobeton 400 kg/m³"), Thickness = 375 },
+                new() { Material = materials.First(m => m.Name == "Cementová omítka"), Thickness = 20 }
+            }
+        };
+        
+        // Příklad 3: Dřevostavba (difúzně otevřená)
+        var example3 = new WallAssembly
+        {
+            Name = "Dřevostavba",
+            Layers = new List<WallLayer>
+            {
+                new() { Material = materials.First(m => m.Name == "Sádrová omítka"), Thickness = 12 },
+                new() { Material = materials.First(m => m.Name == "Parozábrana PE 0,2 mm"), Thickness = 1 },
+                new() { Material = materials.First(m => m.Name == "Minerální vata 30 kg/m³"), Thickness = 200 },
+                new() { Material = materials.First(m => m.Name == "Dřevo smrkové"), Thickness = 50 },
+                new() { Material = materials.First(m => m.Name == "Paropropustná folie"), Thickness = 1 },
+                new() { Material = materials.First(m => m.Name == "Cementová omítka"), Thickness = 20 }
+            }
+        };
+        
+        // Příklad 4: Pasivní dům
+        var example4 = new WallAssembly
+        {
+            Name = "Pasivní dům",
+            Layers = new List<WallLayer>
+            {
+                new() { Material = materials.First(m => m.Name == "Sádrová omítka"), Thickness = 12 },
+                new() { Material = materials.First(m => m.Name == "Minerální vata 60 kg/m³"), Thickness = 300 },
+                new() { Material = materials.First(m => m.Name == "Pórobeton 400 kg/m³"), Thickness = 250 },
+                new() { Material = materials.First(m => m.Name == "Cementová omítka"), Thickness = 20 }
+            }
+        };
+        
+        // Příklad 5: Stará cihlová zeď
+        var example5 = new WallAssembly
+        {
+            Name = "Stará cihlová zeď",
+            Layers = new List<WallLayer>
+            {
+                new() { Material = materials.First(m => m.Name == "Vápenná omítka"), Thickness = 20 },
+                new() { Material = materials.First(m => m.Name == "Cihla plná"), Thickness = 450 },
+                new() { Material = materials.First(m => m.Name == "Vápenná omítka"), Thickness = 20 }
+            }
+        };
+        
+        // Příklad 6: Moderní izolovaná zeď
+        var example6 = new WallAssembly
+        {
+            Name = "Moderní izolovaná zeď",
+            Layers = new List<WallLayer>
+            {
+                new() { Material = materials.First(m => m.Name == "Sádrová omítka"), Thickness = 12 },
+                new() { Material = materials.First(m => m.Name == "Minerální vata 30 kg/m³"), Thickness = 50 },
+                new() { Material = materials.First(m => m.Name == "Polystyren EPS 20 kg/m³"), Thickness = 150 },
+                new() { Material = materials.First(m => m.Name == "Cihla děrovaná"), Thickness = 300 },
+                new() { Material = materials.First(m => m.Name == "Cementová omítka"), Thickness = 20 }
+            }
+        };
+        
+        wallExamples = new List<WallAssembly> { example1, example2, example3, example4, example5, example6 };
+    }
+    
+    private void LoadExample(WallAssembly example)
+    {
+        // Uložíme příklad do session storage nebo URL parametrů
+        var layersJson = System.Text.Json.JsonSerializer.Serialize(example.Layers);
+        Navigation.NavigateTo($"/thermal-resistance?example={Uri.EscapeDataString(layersJson)}");
+    }
+    
+    private string GetRating(double uValue)
+    {
+        return uValue switch
+        {
+            <= 0.15 => "Pasivní dům",
+            <= 0.20 => "Nízkoenergetický",
+            <= 0.30 => "Splňuje normu",
+            <= 0.50 => "Průměrné",
+            <= 0.80 => "Slabé",
+            _ => "Nedostatečné"
+        };
+    }
+    
+    private string GetRatingBadgeClass(double uValue)
+    {
+        return uValue switch
+        {
+            <= 0.15 => "bg-success",
+            <= 0.20 => "bg-primary",
+            <= 0.30 => "bg-info",
+            <= 0.50 => "bg-warning",
+            <= 0.80 => "bg-orange",
+            _ => "bg-danger"
+        };
+    }
+    
+    private BadgeStyle GetRatingBadgeStyle(double uValue)
+    {
+        return uValue switch
+        {
+            <= 0.15 => BadgeStyle.Success,
+            <= 0.20 => BadgeStyle.Primary,
+            <= 0.30 => BadgeStyle.Info,
+            <= 0.50 => BadgeStyle.Warning,
+            <= 0.80 => BadgeStyle.Warning, // Radzen doesn't have orange, use warning
+            _ => BadgeStyle.Danger
+        };
+    }
+} 
