@@ -14,6 +14,9 @@
     <meta name="apple-mobile-web-app-title" content="Izolace" />
     <meta name="description" content="Aplikace pro výpočet tepelného odporu a optimalizace tloušťky izolace stavebních konstrukcí" />
 
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+
     <!-- PWA Icons -->
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
@@ -74,12 +77,36 @@
 
     <!-- Chart.js and optimization chart -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1"></script>
     <script src="js/optimization-chart.js"></script>
 
     <!-- pdfmake for PDF generation with Czech support -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/pdfmake.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/vfs_fonts.js"></script>
     <script src="js/pdfGenerator.js"></script>
+
+    <!-- Access Control - Check token before loading app -->
+    <script>
+        (function() {
+            // Check if access token exists in sessionStorage
+            var accessToken = sessionStorage.getItem('app_access_token');
+
+            if (!accessToken || !accessToken.startsWith('authorized_')) {
+                // No valid token - block access
+                document.getElementById('app').innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100vh; flex-direction: column; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif;"><h1 style="color: #6c757d;">404</h1><p style="color: #6c757d;">Stránka nenalezena</p></div>';
+
+                // Remove all Blazor scripts to prevent app loading
+                var scripts = document.querySelectorAll('script[src*="blazor"], script[src*="_framework"], script[src*="Radzen"]');
+                scripts.forEach(function(script) {
+                    script.remove();
+                });
+
+                return; // Stop execution
+            }
+
+            // Token valid - continue with normal app loading
+        })();
+    </script>
 
     <!-- Service Worker Registration -->
     <script>

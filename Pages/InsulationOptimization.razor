@@ -236,9 +236,65 @@
 
                     <hr style="margin: 1rem 0;" />
 
-                    <RadzenAlert AlertStyle="AlertStyle.Info" Variant="Variant.Flat" Shade="Shade.Lighter">
+                    <RadzenAlert AlertStyle="AlertStyle.Info" Variant="Variant.Outlined" Style="background-color: white; border: 1px solid #dee2e6;">
                         @result.Recommendation
                     </RadzenAlert>
+                </RadzenCard>
+
+                <!-- Dodatečné grafy -->
+                <RadzenCard Class="rz-mb-3">
+                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Class="rz-mb-4">
+                        <RadzenIcon Icon="insert_chart" />
+                        <RadzenText TextStyle="TextStyle.H5" Text="Dodatečné grafy" />
+                        <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="ShowGraphsInfo">
+                            <i class="bi bi-info-circle"></i> Jak grafy fungují
+                        </button>
+                    </RadzenStack>
+
+                    <!-- Volba zobrazených křivek -->
+                    <RadzenFieldset Text="Zobrazit křivky:">
+                        <RadzenStack Orientation="Orientation.Vertical" Gap="0.75rem">
+                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                <RadzenCheckBox TValue="bool" Value="@showPaybackCurve" ValueChanged="@OnPaybackCurveChanged" Name="showPaybackCurve" />
+                                <RadzenLabel Text="🔵 Celková návratnost" Component="showPaybackCurve" />
+                                <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="ShowPaybackInfo">
+                                    <i class="bi bi-info-circle"></i>
+                                </button>
+                            </RadzenStack>
+
+                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                <RadzenCheckBox TValue="bool" Value="@showMarginalPaybackCurve" ValueChanged="@OnMarginalPaybackCurveChanged" Name="showMarginalPaybackCurve" />
+                                <RadzenLabel Text="🟠 Přírůstková návratnost" Component="showMarginalPaybackCurve" />
+                                <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="ShowMarginalPaybackInfo">
+                                    <i class="bi bi-info-circle"></i>
+                                </button>
+                            </RadzenStack>
+
+                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                <RadzenCheckBox TValue="bool" Value="@showNetProfitCurve" ValueChanged="@OnNetProfitCurveChanged" Name="showNetProfitCurve" />
+                                <RadzenLabel Text="💰 Čistý zisk za životnost" Component="showNetProfitCurve" />
+                                <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="ShowNetProfitInfo">
+                                    <i class="bi bi-info-circle"></i>
+                                </button>
+                            </RadzenStack>
+
+                            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                <RadzenCheckBox TValue="bool" Value="@showRoiCurve" ValueChanged="@OnRoiCurveChanged" Name="showRoiCurve" />
+                                <RadzenLabel Text="📈 ROI - návratnost investice" Component="showRoiCurve" />
+                                <button type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="ShowRoiInfo">
+                                    <i class="bi bi-info-circle"></i>
+                                </button>
+                            </RadzenStack>
+                        </RadzenStack>
+                    </RadzenFieldset>
+
+                    @if (showPaybackCurve || showMarginalPaybackCurve || showNetProfitCurve || showRoiCurve)
+                    {
+
+                        <div style="height: 450px; position: relative; margin-top: 1rem;">
+                            <canvas id="combinedPaybackChart"></canvas>
+                        </div>
+                    }
                 </RadzenCard>
 
                 <!-- Srovnávací tabulka -->
@@ -292,6 +348,10 @@
     private List<string> presetNames = new();
     private string? selectedPresetName;
     private List<OptimizationPreset> presets = new();
+    private bool showPaybackCurve = false;
+    private bool showMarginalPaybackCurve = false;
+    private bool showNetProfitCurve = false;
+    private bool showRoiCurve = false;
 
     protected override void OnInitialized()
     {
@@ -382,6 +442,159 @@
         await JS.InvokeVoidAsync("renderOptimizationChart", chartData, result.OptimalThickness);
     }
 
+    private async Task OnPaybackCurveChanged(bool value)
+    {
+        showPaybackCurve = value;
+        await RenderCombinedChart();
+    }
+
+    private async Task OnMarginalPaybackCurveChanged(bool value)
+    {
+        showMarginalPaybackCurve = value;
+        await RenderCombinedChart();
+    }
+
+    private async Task OnNetProfitCurveChanged(bool value)
+    {
+        showNetProfitCurve = value;
+        await RenderCombinedChart();
+    }
+
+    private async Task OnRoiCurveChanged(bool value)
+    {
+        showRoiCurve = value;
+        await RenderCombinedChart();
+    }
+
+    private async Task RenderCombinedChart()
+    {
+        if ((!showPaybackCurve && !showMarginalPaybackCurve && !showNetProfitCurve && !showRoiCurve) || result == null) return;
+
+        await Task.Delay(100); // Počkat na vykreslení canvas elementu
+
+        var thicknesses = result.DataPoints.Select(dp => dp.Thickness).ToArray();
+
+        var datasets = new List<object>();
+
+        // Přidat křivku celkové návratnosti, pokud je zaškrtnuta
+        if (showPaybackCurve)
+        {
+            var paybackPeriods = result.DataPoints.Select(dp =>
+                dp.PaybackPeriod == double.PositiveInfinity ? input.LifetimeYears * 2 : dp.PaybackPeriod
+            ).ToArray();
+
+            datasets.Add(new
+            {
+                label = "Celková návratnost [roky]",
+                data = paybackPeriods,
+                borderColor = "rgb(54, 162, 235)",
+                backgroundColor = "rgba(54, 162, 235, 0.1)",
+                tension = 0.3,
+                fill = true,
+                borderWidth = 3
+            });
+        }
+
+        // Přidat křivku přírůstkové návratnosti, pokud je zaškrtnuta
+        if (showMarginalPaybackCurve)
+        {
+            var marginalPaybacks = result.DataPoints.Select(dp => dp.IncrementalPayback).ToArray();
+
+            datasets.Add(new
+            {
+                label = "Přírůstková návratnost [roky]",
+                data = marginalPaybacks,
+                borderColor = "rgb(255, 159, 64)",
+                backgroundColor = "rgba(255, 159, 64, 0.1)",
+                tension = 0.3,
+                fill = true,
+                borderWidth = 3,
+                yAxisID = "y"
+            });
+        }
+
+        // Přidat křivku čistého zisku za životnost, pokud je zaškrtnuta
+        if (showNetProfitCurve)
+        {
+            var netProfits = result.DataPoints.Select(dp => dp.NetProfit).ToArray();
+
+            datasets.Add(new
+            {
+                label = "Čistý zisk za životnost [Kč]",
+                data = netProfits,
+                borderColor = "rgb(75, 192, 192)",
+                backgroundColor = "rgba(75, 192, 192, 0.1)",
+                tension = 0.3,
+                fill = true,
+                borderWidth = 3,
+                yAxisID = "y1"
+            });
+        }
+
+        // Přidat křivku ROI (Return on Investment v procentech), pokud je zaškrtnuta
+        if (showRoiCurve)
+        {
+            // ROI = (NetProfit / InvestmentCost) × 100
+            var roiValues = result.DataPoints.Select(dp =>
+                dp.InvestmentCost > 0 ? (dp.NetProfit / dp.InvestmentCost) * 100.0 : 0.0
+            ).ToArray();
+
+            datasets.Add(new
+            {
+                label = "ROI - návratnost investice [%]",
+                data = roiValues,
+                borderColor = "rgb(153, 102, 255)",
+                backgroundColor = "rgba(153, 102, 255, 0.1)",
+                tension = 0.3,
+                fill = true,
+                borderWidth = 3,
+                yAxisID = "y2"
+            });
+        }
+
+        var chartData = new
+        {
+            labels = thicknesses,
+            datasets = datasets.ToArray()
+        };
+
+        var annotations = new
+        {
+            lifetimeLine = new
+            {
+                type = "line",
+                yMin = input.LifetimeYears,
+                yMax = input.LifetimeYears,
+                borderColor = "rgb(255, 99, 132)",
+                borderWidth = 2,
+                borderDash = new[] { 5, 5 },
+                label = new
+                {
+                    content = $"Životnost izolace ({input.LifetimeYears} let)",
+                    enabled = true,
+                    position = "end"
+                }
+            },
+            optimalPoint = new
+            {
+                type = "point",
+                xValue = result.OptimalThickness,
+                yValue = result.OptimalPaybackPeriod,
+                backgroundColor = "rgb(75, 192, 192)",
+                borderColor = "rgb(75, 192, 192)",
+                radius = 10,
+                label = new
+                {
+                    content = $"Optimum: {result.OptimalThickness:F1} cm",
+                    enabled = true,
+                    position = "top"
+                }
+            }
+        };
+
+        await JS.InvokeVoidAsync("renderCombinedPaybackChart", chartData, annotations);
+    }
+
     private void ShowHelp()
     {
         var content = @"
@@ -451,6 +664,138 @@
                 <div class='modal-footer'>
                     <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
                 </div>
+            </div>";
+
+        JS.InvokeVoidAsync("showModal", "infoModal", content);
+    }
+
+    // Metody pro zobrazení help modalů pro grafy
+    private void ShowGraphsInfo()
+    {
+        var content = @"
+            <div class='modal-header'>
+                <h5 class='modal-title'><i class='bi bi-graph-up'></i> Jak grafy fungují</h5>
+                <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+                <h6>💡 Legenda grafů</h6>
+                <ul>
+                    <li><strong>🟢 Zelený bod:</strong> Ekonomicky optimální tloušťka = místo s maximálním čistým ziskem za celou životnost izolace</li>
+                    <li><strong>🔴 Červená čára:</strong> Maximální životnost izolace. Body nad touto čarou znamenají, že investice se nesplatí během životnosti.</li>
+                </ul>
+                <p class='mt-3'><em>⚠️ Pozor: Optimum NENÍ v průsečíku křivek! Hledáme maximum zisku, ne nejkratší návratnost.</em></p>
+            </div>
+            <div class='modal-footer'>
+                <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
+            </div>";
+
+        JS.InvokeVoidAsync("showModal", "infoModal", content);
+    }
+
+    private void ShowPaybackInfo()
+    {
+        var content = @"
+            <div class='modal-header'>
+                <h5 class='modal-title'><i class='bi bi-clock-history'></i> Celková návratnost</h5>
+                <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+                <h6>Co je celková návratnost?</h6>
+                <p>Doba, za kterou se vrátí <strong>celková investice</strong> do zateplení dané tloušťky.</p>
+
+                <h6>Interpretace grafu:</h6>
+                <ul>
+                    <li>Čím tlustší izolace, tím <strong>větší investice</strong></li>
+                    <li>Ale také <strong>menší úspora energie</strong> (klesající mezní přínosy)</li>
+                    <li>Proto doba návratnosti s rostoucí tloušťkou <strong>roste</strong></li>
+                </ul>
+            </div>
+            <div class='modal-footer'>
+                <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
+            </div>";
+
+        JS.InvokeVoidAsync("showModal", "infoModal", content);
+    }
+
+    private void ShowMarginalPaybackInfo()
+    {
+        var content = @"
+            <div class='modal-header'>
+                <h5 class='modal-title'><i class='bi bi-bar-chart-steps'></i> Přírůstková návratnost</h5>
+                <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+                <h6>Co je přírůstková návratnost?</h6>
+                <p>Doba návratnosti investice do <strong>KAŽDÉHO DALŠÍHO centimetru</strong> izolace (marginální analýza).</p>
+
+                <h6>Interpretace grafu:</h6>
+                <ul>
+                    <li><strong>První centimetry</strong> se vyplatí velmi rychle</li>
+                    <li><strong>Další centimetry</strong> pomaleji (klesající mezní užitek)</li>
+                    <li>Když křivka <strong>překročí červenou čáru</strong>, další izolace už je neefektivní (nesplatí se během životnosti)</li>
+                </ul>
+            </div>
+            <div class='modal-footer'>
+                <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
+            </div>";
+
+        JS.InvokeVoidAsync("showModal", "infoModal", content);
+    }
+
+    private void ShowNetProfitInfo()
+    {
+        var content = @"
+            <div class='modal-header'>
+                <h5 class='modal-title'><i class='bi bi-cash-coin'></i> Čistý zisk za životnost</h5>
+                <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+                <h6>Co je čistý zisk?</h6>
+                <p>Celková úspora za celou životnost izolace <strong>MINUS</strong> počáteční investice.</p>
+
+                <h6>Vzorec:</h6>
+                <p><code>Čistý zisk = (Roční úspora × Životnost) - Investice</code></p>
+
+                <h6>Interpretace hodnot:</h6>
+                <ul>
+                    <li><strong>&gt; 0 Kč:</strong> Investice je zisková</li>
+                    <li><strong>= 0 Kč:</strong> Break-even (návratnost přesně na konci životnosti)</li>
+                    <li><strong>&lt; 0 Kč:</strong> Ztráta (investice se nevyplatí)</li>
+                </ul>
+                <p class='mt-2'><em>Čím vyšší hodnota, tím výhodnější investice!</em></p>
+            </div>
+            <div class='modal-footer'>
+                <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
+            </div>";
+
+        JS.InvokeVoidAsync("showModal", "infoModal", content);
+    }
+
+    private void ShowRoiInfo()
+    {
+        var content = @"
+            <div class='modal-header'>
+                <h5 class='modal-title'><i class='bi bi-percent'></i> ROI - Return on Investment</h5>
+                <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
+            </div>
+            <div class='modal-body'>
+                <h6>Co je ROI?</h6>
+                <p>Návratnost investice v procentech - ukazuje, kolik procent ze své investice získáte zpět za celou životnost.</p>
+
+                <h6>Vzorec:</h6>
+                <p><code>ROI = (Čistý zisk / Investice) × 100%</code></p>
+
+                <h6>Interpretace hodnot:</h6>
+                <ul>
+                    <li><strong>ROI 200%:</strong> Výjimečná návratnost (3× investice)</li>
+                    <li><strong>ROI 100%:</strong> Zdvojnásobení investice</li>
+                    <li><strong>ROI 50%:</strong> Získáte 1.5× investice zpět</li>
+                    <li><strong>ROI 0%:</strong> Break-even (jen vrátí investici)</li>
+                    <li><strong>ROI &lt; 0%:</strong> Ztráta</li>
+                </ul>
+            </div>
+            <div class='modal-footer'>
+                <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
             </div>";
 
         JS.InvokeVoidAsync("showModal", "infoModal", content);

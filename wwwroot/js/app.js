@@ -264,6 +264,222 @@ window.setBlazorReference = function (dotNetRef) {
     };
 };
 
+// === COMBINED PAYBACK CHART ===
+window.renderCombinedPaybackChart = function(chartData, annotations) {
+    const canvasId = 'combinedPaybackChart';
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) {
+        console.error('Canvas element not found:', canvasId);
+        return;
+    }
+
+    // Zničit existující graf
+    if (window.combinedPaybackChartInstance) {
+        window.combinedPaybackChartInstance.destroy();
+    }
+
+    const ctx = canvas.getContext('2d');
+    window.combinedPaybackChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: chartData,
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        font: {
+                            size: 14
+                        },
+                        padding: 20,
+                        usePointStyle: true
+                    }
+                },
+                title: {
+                    display: true,
+                    text: 'Analýza návratnosti investice do zateplení',
+                    font: {
+                        size: 17,
+                        weight: 'bold'
+                    },
+                    padding: {
+                        top: 10,
+                        bottom: 25
+                    }
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                    padding: 15,
+                    titleFont: {
+                        size: 15,
+                        weight: 'bold'
+                    },
+                    bodyFont: {
+                        size: 14
+                    },
+                    callbacks: {
+                        title: function(context) {
+                            return 'Tloušťka: ' + context[0].parsed.x + ' cm';
+                        },
+                        label: function(context) {
+                            const datasetLabel = context.dataset.label;
+                            const value = context.parsed.y;
+
+                            if (datasetLabel.includes('Celková')) {
+                                return 'Celková návratnost: ' + value.toFixed(1) + ' let';
+                            } else if (datasetLabel.includes('Přírůstková')) {
+                                return 'Návratnost +1 cm: ' + value.toFixed(1) + ' let';
+                            } else if (datasetLabel.includes('Čistý zisk')) {
+                                return 'Čistý zisk: ' + value.toLocaleString('cs-CZ') + ' Kč';
+                            } else if (datasetLabel.includes('ROI')) {
+                                return 'ROI: ' + value.toFixed(0) + '%';
+                            }
+                            return context.dataset.label + ': ' + value;
+                        },
+                        afterBody: function(context) {
+                            const lines = [];
+                            context.forEach(item => {
+                                const value = item.parsed.y;
+                                const datasetLabel = item.dataset.label;
+
+                                if (datasetLabel.includes('Celková')) {
+                                    if (value < 5) {
+                                        lines.push('\n✅ Velmi rychlá návratnost');
+                                    } else if (value < 10) {
+                                        lines.push('\n✅ Dobrá návratnost');
+                                    } else if (value < 20) {
+                                        lines.push('\n⚠️ Pomalejší návratnost');
+                                    } else {
+                                        lines.push('\n❌ Nevýhodná investice');
+                                    }
+                                } else if (datasetLabel.includes('Přírůstková')) {
+                                    if (value < 5) {
+                                        lines.push('\n✅ Přidání dalšího cm se velmi vyplatí');
+                                    } else if (value < 10) {
+                                        lines.push('\n✅ Přidání dalšího cm se vyplatí');
+                                    } else if (value < 20) {
+                                        lines.push('\n⚠️ Přidání dalšího cm má nižší efekt');
+                                    } else {
+                                        lines.push('\n❌ Další izolace už je neefektivní');
+                                    }
+                                } else if (datasetLabel.includes('Čistý zisk')) {
+                                    if (value > 100000) {
+                                        lines.push('\n✅ Výborný zisk za celou životnost');
+                                    } else if (value > 50000) {
+                                        lines.push('\n✅ Dobrý zisk za celou životnost');
+                                    } else if (value > 0) {
+                                        lines.push('\n⚠️ Nízký zisk');
+                                    } else {
+                                        lines.push('\n❌ Ztráta - investice se nevyplatí');
+                                    }
+                                } else if (datasetLabel.includes('ROI')) {
+                                    if (value > 200) {
+                                        lines.push('\n✅ Výjimečná návratnost (3x investice)');
+                                    } else if (value > 100) {
+                                        lines.push('\n✅ Výborná návratnost (2x investice)');
+                                    } else if (value > 50) {
+                                        lines.push('\n✅ Dobrá návratnost');
+                                    } else if (value > 0) {
+                                        lines.push('\n⚠️ Nízká návratnost');
+                                    } else {
+                                        lines.push('\n❌ Ztráta - investice se nevyplatí');
+                                    }
+                                }
+                            });
+                            return lines.join('');
+                        }
+                    }
+                },
+                annotation: {
+                    annotations: annotations
+                }
+            },
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Tloušťka izolace [cm]',
+                        font: {
+                            size: 14,
+                            weight: 'bold'
+                        }
+                    },
+                    grid: {
+                        display: true,
+                        color: 'rgba(0, 0, 0, 0.06)'
+                    }
+                },
+                y: {
+                    type: 'linear',
+                    position: 'left',
+                    title: {
+                        display: true,
+                        text: 'Doba návratnosti [roky]',
+                        font: {
+                            size: 14,
+                            weight: 'bold'
+                        }
+                    },
+                    beginAtZero: true,
+                    grid: {
+                        display: true,
+                        color: 'rgba(0, 0, 0, 0.06)'
+                    }
+                },
+                y1: {
+                    type: 'linear',
+                    position: 'right',
+                    title: {
+                        display: true,
+                        text: 'Čistý zisk [Kč]',
+                        font: {
+                            size: 14,
+                            weight: 'bold'
+                        }
+                    },
+                    grid: {
+                        display: false
+                    },
+                    ticks: {
+                        callback: function(value) {
+                            return value.toLocaleString('cs-CZ') + ' Kč';
+                        }
+                    }
+                },
+                y2: {
+                    type: 'linear',
+                    position: 'right',
+                    title: {
+                        display: true,
+                        text: 'ROI [%]',
+                        font: {
+                            size: 14,
+                            weight: 'bold'
+                        }
+                    },
+                    grid: {
+                        display: false
+                    },
+                    ticks: {
+                        callback: function(value) {
+                            return value.toFixed(0) + '%';
+                        }
+                    }
+                }
+            },
+            interaction: {
+                mode: 'nearest',
+                axis: 'x',
+                intersect: false
+            }
+        }
+    });
+};
+
 // === DRAG & DROP FUNKCIONALITA ===
 
 // Globální proměnné pro drag & drop
