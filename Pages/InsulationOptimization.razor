@@ -290,6 +290,42 @@
 
                     @if (showPaybackCurve || showMarginalPaybackCurve || showNetProfitCurve || showRoiCurve)
                     {
+                        @if (result != null)
+                        {
+                            <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin-top: 1rem;">
+                                <div style="display: flex; gap: 2rem; flex-wrap: wrap;">
+                                    <div>
+                                        <strong>🟢 Optimální tloušťka:</strong> @result.OptimalThickness.ToString("F1") cm<br/>
+                                        <small style="color: #666;">Maximální čistý zisk za životnost</small>
+                                    </div>
+                                    @if (showMarginalPaybackCurve)
+                                    {
+                                        // Najít POSLEDNÍ bod kde návratnost < 20 let A zároveň >= optima
+                                        double? maxEffThickness = null;
+                                        for (int i = result.DataPoints.Count - 1; i >= 0; i--)
+                                        {
+                                            if (result.DataPoints[i].IncrementalPayback < input.LifetimeYears &&
+                                                result.DataPoints[i].Thickness >= result.OptimalThickness)
+                                            {
+                                                maxEffThickness = result.DataPoints[i].Thickness;
+                                                break;
+                                            }
+                                        }
+
+                                        // Fallback: pokud nenajdeme nic, použij optimum
+                                        if (!maxEffThickness.HasValue)
+                                        {
+                                            maxEffThickness = result.OptimalThickness;
+                                        }
+
+                                        <div>
+                                            <strong>🔴 Maximální efektivní tloušťka:</strong> @maxEffThickness.Value.ToString("F1") cm<br/>
+                                            <small style="color: #666;">Nad touto hodnotou se izolace nevyplatí</small>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
 
                         <div style="height: 450px; position: relative; margin-top: 1rem;">
                             <canvas id="combinedPaybackChart"></canvas>
@@ -382,6 +418,10 @@
 
             // Získat srovnávací data
             comparisonData = OptimizationService.GetComparisonData(result);
+
+            // Vynutit překreslení UI aby se canvas element zobrazil
+            StateHasChanged();
+            await Task.Delay(200); // Počkat na vykreslení canvas elementu
 
             // Vykreslit graf
             await RenderChart();
@@ -558,9 +598,34 @@
             datasets = datasets.ToArray()
         };
 
-        var annotations = new
+        // Najít průsečík přírůstkové návratnosti s životností (červený bod)
+        // Hledáme POSLEDNÍ bod kde je IncrementalPayback < LifetimeYears
+        // ALE červený bod MUSÍ být >= zelený bod (optimum)!
+        double? maxEffectiveThickness = null;
+        if (showMarginalPaybackCurve && result.DataPoints.Count > 1)
         {
-            lifetimeLine = new
+            // Projít body odzadu a najít poslední bod kde je < lifetime
+            for (int i = result.DataPoints.Count - 1; i >= 0; i--)
+            {
+                if (result.DataPoints[i].IncrementalPayback < input.LifetimeYears &&
+                    result.DataPoints[i].Thickness >= result.OptimalThickness)
+                {
+                    maxEffectiveThickness = result.DataPoints[i].Thickness;
+                    break;
+                }
+            }
+
+            // Pokud nic nenašli (červený by byl < zelený), použij optimum
+            if (!maxEffectiveThickness.HasValue)
+            {
+                maxEffectiveThickness = result.OptimalThickness;
+            }
+        }
+
+        // Vytvořit annotations dynamicky
+        var annotationsList = new Dictionary<string, object>
+        {
+            ["lifetimeLine"] = new
             {
                 type = "line",
                 yMin = input.LifetimeYears,
@@ -575,7 +640,7 @@
                     position = "end"
                 }
             },
-            optimalPoint = new
+            ["optimalPoint"] = new
             {
                 type = "point",
                 xValue = result.OptimalThickness,
@@ -585,14 +650,50 @@
                 radius = 10,
                 label = new
                 {
-                    content = $"Optimum: {result.OptimalThickness:F1} cm",
+                    content = $"🟢 Optimum: {result.OptimalThickness:F1} cm",
                     enabled = true,
-                    position = "top"
+                    position = "top",
+                    backgroundColor = "rgba(75, 192, 192, 0.8)",
+                    color = "white",
+                    padding = 6,
+                    font = new
+                    {
+                        size = 12,
+                        weight = "bold"
+                    }
                 }
             }
         };
 
-        await JS.InvokeVoidAsync("renderCombinedPaybackChart", chartData, annotations);
+        // Přidat červený bod pro průsečík, pokud existuje
+        if (maxEffectiveThickness.HasValue)
+        {
+            annotationsList["maxEffectivePoint"] = new
+            {
+                type = "point",
+                xValue = maxEffectiveThickness.Value,
+                yValue = input.LifetimeYears,
+                backgroundColor = "rgb(255, 99, 132)",
+                borderColor = "rgb(255, 99, 132)",
+                radius = 10,
+                label = new
+                {
+                    content = $"🔴 Limit: {maxEffectiveThickness.Value:F1} cm",
+                    enabled = true,
+                    position = "top",
+                    backgroundColor = "rgba(255, 99, 132, 0.8)",
+                    color = "white",
+                    padding = 6,
+                    font = new
+                    {
+                        size = 12,
+                        weight = "bold"
+                    }
+                }
+            };
+        }
+
+        await JS.InvokeVoidAsync("renderCombinedPaybackChart", chartData, annotationsList);
     }
 
     private void ShowHelp()
@@ -678,12 +779,92 @@
                 <button type='button' class='btn-close' data-bs-dismiss='modal'></button>
             </div>
             <div class='modal-body'>
-                <h6>💡 Legenda grafů</h6>
-                <ul>
-                    <li><strong>🟢 Zelený bod:</strong> Ekonomicky optimální tloušťka = místo s maximálním čistým ziskem za celou životnost izolace</li>
-                    <li><strong>🔴 Červená čára:</strong> Maximální životnost izolace. Body nad touto čarou znamenají, že investice se nesplatí během životnosti.</li>
-                </ul>
-                <p class='mt-3'><em>⚠️ Pozor: Optimum NENÍ v průsečíku křivek! Hledáme maximum zisku, ne nejkratší návratnost.</em></p>
+                <h5>🟢 Zelený bod: Optimální tloušťka</h5>
+                <p>
+                    Zelený bod představuje <strong>ekonomické optimum</strong>, tedy tloušťku izolace, která přinese
+                    <strong>maximální čistý zisk</strong> během celé životnosti.
+                </p>
+
+                <p>
+                    <strong>Význam:</strong> Maximální čistá současná hodnota (NPV) nebo maximální celkový čistý zisk
+                    (úspory minus náklady na izolaci).
+                </p>
+
+                <p>
+                    <strong>Logika:</strong> Vychází z mezní analýzy (marginal analysis). Přidáváte izolaci, dokud je
+                    mezní (přírůstková) úspora větší než mezní (přírůstkový) náklad. Kritériem je celkový efekt na čistý zisk.
+                    Přestanete přidávat ve chvíli, kdy další vrstva stojí víc, než kolik ušetří celkem za 20 let.
+                </p>
+
+                <p>
+                    <strong>Analogie:</strong> Je to jako hledat vrchol kopce zisku. Když jdete nahoru (zisk roste), jdete dál.
+                    Když se sklon změní a začnete klesat (zisk klesá), zastavíte se na vrcholu.
+                </p>
+
+                <hr class='my-4'>
+
+                <h5>🔴 Červený bod: Maximální efektivní tloušťka</h5>
+                <p>
+                    Červený bod představuje <strong>limitní tloušťku</strong>, která se ještě stále stihne splatit
+                    (návratnost investice je menší nebo rovna životnosti projektu, zde 20 let).
+                </p>
+
+                <p>
+                    <strong>Význam:</strong> Hranice návratnosti. Je to poslední tloušťka, kde je celková investice do izolace
+                    (od 0 cm až do tohoto bodu) splacena úsporami do konce životnosti.
+                </p>
+
+                <p>
+                    <strong>Logika:</strong> Zde se obvykle sleduje přírůstková návratnost (jak je uvedeno v textu) nebo se zjišťuje,
+                    zda celková doba návratnosti investice je ≤ 20 let. Tento bod se nachází tam, kde je mezní úspora rovna meznímu
+                    nákladu při diskontování na životnost (20 let). Pokud se přírůstková vrstva splatí za ≥ 20 let, znamená to,
+                    že ta vrstva (a celá investice nad 0 cm) by se během životnosti už nevrátila.
+                </p>
+
+                <p>
+                    <strong>Analogie:</strong> Je to hranice, po kterou má investice smysl. Kdyby životnost budovy byla jen 10 let,
+                    červený bod by byl nižší.
+                </p>
+
+                <hr class='my-4'>
+
+                <h5>Rozdíl a Shrnutí</h5>
+                <table class='table table-bordered table-sm'>
+                    <thead>
+                        <tr>
+                            <th>Kritérium</th>
+                            <th>🟢 Zelený bod (Optimum)</th>
+                            <th>🔴 Červený bod (Limit)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Kritický Faktor</strong></td>
+                            <td>Mezní zisk (Přírůstkové úspory vs. Přírůstkové náklady)</td>
+                            <td>Doba návratnosti (Návratnost &lt; Životnost)</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Cíl</strong></td>
+                            <td>Maximalizace celkového zisku (NPV)</td>
+                            <td>Zajištění splacení celé investice</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Vztah tloušťek</strong></td>
+                            <td>Vždy menší nebo roven než červený bod</td>
+                            <td>Vždy větší nebo roven než zelený bod</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class='alert alert-success mt-3'>
+                    <h6>Závěr:</h6>
+                    <p class='mb-1'>
+                        <strong>🟢 Zelený bod</strong> je tloušťka, kterou by měl investor volit pro <strong>maximální ekonomický prospěch</strong>.
+                    </p>
+                    <p class='mb-0'>
+                        <strong>🔴 Červený bod</strong> je horní limit tloušťky, nad kterou se izolace z pohledu dané životnosti už <strong>vůbec nevyplatí</strong>.
+                    </p>
+                </div>
             </div>
             <div class='modal-footer'>
                 <button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>Zavřít</button>
