@@ -34,41 +34,28 @@ window.downloadFile = function (base64String, contentType, fileName) {
 
 // Funkce pro zobrazení modalu
 window.showModal = function (modalId, content) {
-    // Vytvoření modalu, pokud neexistuje
+    // Získat nebo vytvořit modal
     let modal = document.getElementById(modalId);
     if (!modal) {
         modal = document.createElement('div');
         modal.id = modalId;
         modal.className = 'modal fade';
         modal.setAttribute('tabindex', '-1');
-        modal.setAttribute('aria-labelledby', modalId + 'Label');
-        modal.innerHTML = `
-            <div class="modal-dialog modal-lg">
-                <div class="modal-content">
-                    ${content}
-                </div>
-            </div>
-        `;
+        modal.setAttribute('aria-hidden', 'true');
         document.body.appendChild(modal);
-    } else {
-        // Aktualizace obsahu existujícího modalu
-        const modalContent = modal.querySelector('.modal-content');
-        modalContent.innerHTML = content;
     }
 
-    // Zobrazení modalu s fix pro accessibility
+    // Nastavit HTML obsah s bílým pozadím
+    modal.innerHTML = `
+        <div class="modal-dialog modal-dialog-scrollable modal-lg">
+            <div class="modal-content" style="background-color: white;">
+                ${content}
+            </div>
+        </div>
+    `;
+
+    // Zobrazit modal
     const bootstrapModal = new bootstrap.Modal(modal);
-
-    // Event listener pro opravu aria-hidden při zobrazení
-    modal.addEventListener('shown.bs.modal', function () {
-        modal.removeAttribute('aria-hidden');
-    });
-
-    // Event listener pro opravu aria-hidden při skrytí
-    modal.addEventListener('hidden.bs.modal', function () {
-        modal.setAttribute('aria-hidden', 'true');
-    });
-
     bootstrapModal.show();
 };
 
@@ -231,26 +218,6 @@ window.clearLocalStorageIfCorrupted = function () {
     }
 };
 
-// Funkce pro zobrazení Bootstrap modalu s HTML obsahem
-window.showModal = function(modalId, content) {
-    // Získat nebo vytvořit modal
-    let modalElement = document.getElementById(modalId);
-    if (!modalElement) {
-        modalElement = document.createElement('div');
-        modalElement.id = modalId;
-        modalElement.className = 'modal fade';
-        modalElement.setAttribute('tabindex', '-1');
-        modalElement.setAttribute('aria-hidden', 'true');
-        document.body.appendChild(modalElement);
-    }
-
-    // Nastavit HTML obsah
-    modalElement.innerHTML = `<div class="modal-dialog modal-dialog-scrollable modal-lg">${content}</div>`;
-
-    // Zobrazit modal
-    const modal = new bootstrap.Modal(modalElement);
-    modal.show();
-};
 
 // Funkce pro nastavení Blazor reference
 window.setBlazorReference = function (dotNetRef) {
