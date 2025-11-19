@@ -165,6 +165,54 @@ public class InsulationOptimizationService
             dataPoint.CumulativeSavings = dataPoint.AnnualSavings * input.LifetimeYears;
         }
 
+        // NPV výpočty - pokud je zapnuté diskontování
+        if (input.UseDiscounting && input.DiscountRate > 0)
+        {
+            // Diskontované kumulativní úspory (NPV úspor)
+            // PV = Σ(úspora_N × (1+inflace)^N / (1+diskont)^N)
+            double discountedSavings = 0;
+            double cumulativeDiscountedSavings = 0;
+            int discountedPaybackYear = 0;
+
+            for (int year = 1; year <= input.LifetimeYears; year++)
+            {
+                // Roční úspora s inflací
+                double inflationMultiplier = input.UseInflation && input.AnnualInflationRate > 0
+                    ? Math.Pow(1 + input.AnnualInflationRate / 100.0, year)
+                    : 1.0;
+
+                double yearSavings = dataPoint.AnnualSavings * inflationMultiplier;
+
+                // Diskontní faktor
+                double discountFactor = Math.Pow(1 + input.DiscountRate / 100.0, year);
+
+                // Současná hodnota roční úspory
+                double presentValue = yearSavings / discountFactor;
+
+                discountedSavings += presentValue;
+                cumulativeDiscountedSavings += presentValue;
+
+                // Najít rok kdy kumulativní diskontované úspory >= investice
+                if (discountedPaybackYear == 0 && cumulativeDiscountedSavings >= dataPoint.InvestmentCost)
+                {
+                    discountedPaybackYear = year;
+                }
+            }
+
+            dataPoint.DiscountedCumulativeSavings = discountedSavings;
+            dataPoint.NetPresentValue = discountedSavings - dataPoint.InvestmentCost;
+            dataPoint.DiscountedPaybackPeriod = discountedPaybackYear > 0
+                ? discountedPaybackYear
+                : double.PositiveInfinity;
+        }
+        else
+        {
+            // Bez diskontování: NPV = nominální hodnoty
+            dataPoint.DiscountedCumulativeSavings = dataPoint.CumulativeSavings;
+            dataPoint.NetPresentValue = dataPoint.NetProfit;
+            dataPoint.DiscountedPaybackPeriod = dataPoint.PaybackPeriod;
+        }
+
         // Čistý zisk (úspora - investice) [Kč]
         dataPoint.NetProfit = dataPoint.CumulativeSavings - dataPoint.InvestmentCost;
 

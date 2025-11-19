@@ -165,3 +165,126 @@ window.destroyOptimizationChart = function() {
         optimizationChartInstance = null;
     }
 };
+
+// NPV Graf
+let npvChartInstance = null;
+
+/**
+ * Vykreslí graf NPV (diskontovaných hodnot)
+ * @param {Object} chartData - Data pro Chart.js (labels, datasets)
+ * @param {Object} annotations - Anotace pro označení bodů (zelený, červený)
+ */
+window.renderNPVChart = function(chartData, annotations) {
+    const canvas = document.getElementById('npvChart');
+    if (!canvas) {
+        console.error('NPV Canvas element not found');
+        return;
+    }
+
+    const ctx = canvas.getContext('2d');
+
+    // Zničit existující graf
+    if (npvChartInstance) {
+        npvChartInstance.destroy();
+    }
+
+    // Vytvoření grafu s annotations pluginem
+    npvChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: chartData,
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: {
+                        usePointStyle: true,
+                        padding: 15,
+                        font: {
+                            size: 12
+                        }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        title: function(context) {
+                            return 'Tloušťka: ' + context[0].label + ' cm';
+                        },
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            label += Math.round(context.parsed.y).toLocaleString('cs-CZ') + ' Kč';
+                            return label;
+                        }
+                    },
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    padding: 12,
+                    titleFont: {
+                        size: 14
+                    },
+                    bodyFont: {
+                        size: 13
+                    }
+                },
+                annotation: {
+                    annotations: annotations
+                }
+            },
+            scales: {
+                x: {
+                    type: 'linear',
+                    title: {
+                        display: true,
+                        text: 'Tloušťka izolace [cm]',
+                        font: {
+                            size: 14,
+                            weight: 'bold'
+                        }
+                    },
+                    ticks: {
+                        stepSize: 5,
+                        callback: function(value) {
+                            return value + ' cm';
+                        }
+                    },
+                    grid: {
+                        color: 'rgba(0, 0, 0, 0.05)'
+                    }
+                },
+                y: {
+                    type: 'linear',
+                    title: {
+                        display: true,
+                        text: 'NPV [Kč/m²]',
+                        font: {
+                            size: 14,
+                            weight: 'bold'
+                        }
+                    },
+                    ticks: {
+                        callback: function(value) {
+                            return value.toLocaleString('cs-CZ') + ' Kč';
+                        }
+                    },
+                    grid: {
+                        color: 'rgba(0, 0, 0, 0.1)'
+                    }
+                }
+            }
+        }
+    });
+};
+
+window.destroyNPVChart = function() {
+    if (npvChartInstance) {
+        npvChartInstance.destroy();
+        npvChartInstance = null;
+    }
+};

@@ -151,6 +151,33 @@
                                         </ChildContent>
                                     </RadzenFormField>
                                 }
+
+                                <!-- Diskontování toggle -->
+                                <RadzenFormField Variant="Variant.Outlined">
+                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                        <RadzenCheckBox @bind-Value="input.UseDiscounting" Name="useDiscounting" />
+                                        <RadzenLabel Text="Zohlednit diskontování (časová hodnota peněz)" Component="useDiscounting" />
+                                    </RadzenStack>
+                                </RadzenFormField>
+
+                                <!-- Diskontní sazba - pouze pokud je zapnuto -->
+                                @if (input.UseDiscounting)
+                                {
+                                    <RadzenFormField Text="Diskontní sazba (%):" Variant="Variant.Outlined">
+                                        <Helper>
+                                            <RadzenText TextStyle="TextStyle.Caption" Text="Požadovaná výnosnost investice (typicky 3-5%)" />
+                                        </Helper>
+                                        <ChildContent>
+                                            <RadzenNumeric TValue="double"
+                                                          @bind-Value="input.DiscountRate"
+                                                          Min="0m"
+                                                          Max="15m"
+                                                          Step="0.5m"
+                                                          ShowUpDown="false"
+                                                          Style="width: 100%;" />
+                                        </ChildContent>
+                                    </RadzenFormField>
+                                }
                             </RadzenStack>
                         </ChildContent>
                     </RadzenExpander>
@@ -182,16 +209,48 @@
             }
             else
             {
-                <!-- Graf -->
+                <!-- Graf s záložkami -->
                 <RadzenCard Class="rz-mb-3">
                     <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem" Class="rz-mb-4">
                         <RadzenIcon Icon="show_chart" />
                         <RadzenText TextStyle="TextStyle.H5" Text="Ekonomická analýza" />
                     </RadzenStack>
 
-                    <div id="optimizationChartContainer" style="height: 400px; position: relative;">
-                        <canvas id="optimizationChart"></canvas>
-                    </div>
+                    <RadzenTabs @bind-SelectedIndex="selectedTabIndex" Change="@OnTabChange">
+                        <Tabs>
+                            <!-- Záložka 1: Nominální hodnoty (původní graf) -->
+                            <RadzenTabsItem Text="Nominální hodnoty">
+                                <div id="optimizationChartContainer" style="height: 400px; position: relative; margin-top: 1rem;">
+                                    <canvas id="optimizationChart"></canvas>
+                                </div>
+                            </RadzenTabsItem>
+
+                            <!-- Záložka 2: NPV (Diskontované hodnoty) -->
+                            <RadzenTabsItem Text="NPV (Diskontované hodnoty)" Disabled="@(!input.UseDiscounting)">
+                                @if (result != null && input.UseDiscounting)
+                                {
+                                    <div style="background: #f0f8ff; padding: 1rem; border-radius: 8px; margin-top: 1rem; margin-bottom: 1rem; border-left: 4px solid #0066cc;">
+                                        <div style="display: flex; gap: 2rem; flex-wrap: wrap;">
+                                            <div>
+                                                <strong>🟢 Zelený bod: Maximální NPV (Čistá současná hodnota)</strong><br/>
+                                                <small style="color: #666;">Tloušťka s nejvyšší ekonomickou hodnotou po zohlednění časové hodnoty peněz</small>
+                                            </div>
+                                            <div>
+                                                <strong>🔴 Červený bod: Break-even (NPV = 0)</strong><br/>
+                                                <small style="color: #666;">Maximální tloušťka, kde se investice stále vyplatí (NPV ≥ 0)</small>
+                                            </div>
+                                        </div>
+                                        <div style="margin-top: 0.5rem; padding: 0.5rem; background: #fff3cd; border-radius: 4px;">
+                                            <small><strong>💡 Diskont @input.DiscountRate.ToString("F1")%:</strong> Zohledňuje časovou hodnotu peněz - peníze dnes mají větší hodnotu než stejné peníze v budoucnu.</small>
+                                        </div>
+                                    </div>
+                                }
+                                <div id="npvChartContainer" style="height: 400px; position: relative;">
+                                    <canvas id="npvChart"></canvas>
+                                </div>
+                            </RadzenTabsItem>
+                        </Tabs>
+                    </RadzenTabs>
                 </RadzenCard>
 
                 <!-- Výsledky optimalizace -->
@@ -388,6 +447,7 @@
     private bool showMarginalPaybackCurve = false;
     private bool showNetProfitCurve = false;
     private bool showRoiCurve = false;
+    private int selectedTabIndex = 0; // 0 = Nominální, 1 = NPV
 
     protected override void OnInitialized()
     {
@@ -694,6 +754,151 @@
         }
 
         await JS.InvokeVoidAsync("renderCombinedPaybackChart", chartData, annotationsList);
+    }
+
+    private async Task OnTabChange(int index)
+    {
+        selectedTabIndex = index;
+
+        // Počkat na vykreslení canvas elementu
+        StateHasChanged();
+        await Task.Delay(200);
+
+        if (index == 0)
+        {
+            // Tab 0: Nominální hodnoty
+            await RenderChart();
+        }
+        else if (index == 1 && input.UseDiscounting)
+        {
+            // Tab 1: NPV (diskontované hodnoty)
+            await RenderNPVChart();
+        }
+    }
+
+    private async Task RenderNPVChart()
+    {
+        if (result == null || !input.UseDiscounting) return;
+
+        // Příprava dat pro NPV graf
+        var thicknesses = result.DataPoints.Select(dp => dp.Thickness).ToArray();
+        var investmentCosts = result.DataPoints.Select(dp => dp.InvestmentCost).ToArray();
+        var discountedSavings = result.DataPoints.Select(dp => dp.DiscountedCumulativeSavings).ToArray();
+        var npvValues = result.DataPoints.Select(dp => dp.NetPresentValue).ToArray();
+
+        // Najít optimum (max NPV)
+        var maxNPV = npvValues.Max();
+        var optimalNPVThickness = result.DataPoints
+            .FirstOrDefault(dp => Math.Abs(dp.NetPresentValue - maxNPV) < 0.01)?.Thickness ?? result.OptimalThickness;
+
+        // Najít break-even (NPV = 0)
+        double? breakEvenThickness = null;
+        for (int i = result.DataPoints.Count - 1; i >= 0; i--)
+        {
+            if (result.DataPoints[i].NetPresentValue >= 0)
+            {
+                breakEvenThickness = result.DataPoints[i].Thickness;
+                break;
+            }
+        }
+
+        var chartData = new
+        {
+            labels = thicknesses,
+            datasets = new object[]
+            {
+                new
+                {
+                    label = "Investiční náklady",
+                    data = investmentCosts,
+                    borderColor = "rgb(255, 99, 132)",
+                    backgroundColor = "rgba(255, 99, 132, 0.1)",
+                    tension = 0.1,
+                    yAxisID = "y"
+                },
+                new
+                {
+                    label = $"Diskontované úspory za {input.LifetimeYears} let (NPV úspor)",
+                    data = discountedSavings,
+                    borderColor = "rgb(75, 192, 192)",
+                    backgroundColor = "rgba(75, 192, 192, 0.1)",
+                    tension = 0.1,
+                    yAxisID = "y"
+                },
+                new
+                {
+                    label = $"NPV (Čistá současná hodnota)",
+                    data = npvValues,
+                    borderColor = "rgb(54, 162, 235)",
+                    backgroundColor = "rgba(54, 162, 235, 0.1)",
+                    tension = 0.1,
+                    borderWidth = 3,
+                    yAxisID = "y"
+                }
+            }
+        };
+
+        // Příprava anotací pro NPV graf
+        var npvAnnotations = new Dictionary<string, object>
+        {
+            ["optimalPoint"] = new
+            {
+                type = "point",
+                xValue = optimalNPVThickness,
+                yValue = maxNPV,
+                backgroundColor = "rgb(0, 200, 0)",
+                borderColor = "rgb(0, 200, 0)",
+                radius = 10,
+                label = new
+                {
+                    content = $"🟢 Max NPV: {optimalNPVThickness:F1} cm",
+                    enabled = true,
+                    position = "top",
+                    backgroundColor = "rgba(0, 200, 0, 0.8)",
+                    color = "white",
+                    padding = 6,
+                    font = new
+                    {
+                        size = 12,
+                        weight = "bold"
+                    }
+                }
+            }
+        };
+
+        // Přidat červený bod (break-even NPV = 0) pokud existuje
+        if (breakEvenThickness.HasValue)
+        {
+            var breakEvenPoint = result.DataPoints.FirstOrDefault(dp => Math.Abs(dp.Thickness - breakEvenThickness.Value) < 0.1);
+            if (breakEvenPoint != null)
+            {
+                npvAnnotations["breakEvenPoint"] = new
+                {
+                    type = "point",
+                    xValue = breakEvenThickness.Value,
+                    yValue = 0,
+                    backgroundColor = "rgb(255, 99, 132)",
+                    borderColor = "rgb(255, 99, 132)",
+                    radius = 10,
+                    label = new
+                    {
+                        content = $"🔴 Break-even: {breakEvenThickness.Value:F1} cm",
+                        enabled = true,
+                        position = "bottom",
+                        backgroundColor = "rgba(255, 99, 132, 0.8)",
+                        color = "white",
+                        padding = 6,
+                        font = new
+                        {
+                            size = 12,
+                            weight = "bold"
+                        }
+                    }
+                };
+            }
+        }
+
+        await JS.InvokeVoidAsync("renderNPVChart", chartData, npvAnnotations);
     }
 
     private void ShowHelp()

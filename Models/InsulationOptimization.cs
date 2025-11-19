@@ -60,6 +60,17 @@ public class InsulationOptimizationInput
     /// Roční míra inflace [%]
     /// </summary>
     public double AnnualInflationRate { get; set; } = 2.0;
+
+    /// <summary>
+    /// Zohlednit diskontování (časovou hodnotu peněz) při výpočtu NPV
+    /// </summary>
+    public bool UseDiscounting { get; set; } = false;
+
+    /// <summary>
+    /// Diskontní sazba - požadovaná výnosnost investice [%]
+    /// Typicky 3-5% pro dlouhodobé investice
+    /// </summary>
+    public double DiscountRate { get; set; } = 3.0;
 }
 
 /// <summary>
@@ -122,6 +133,23 @@ public class OptimizationDataPoint
     /// Použito pro určení ekonomického optima
     /// </summary>
     public double IncrementalPayback { get; set; }
+
+    /// <summary>
+    /// Diskontované kumulativní úspory za celou životnost [Kč]
+    /// Zohledňuje časovou hodnotu peněz (NPV úspor)
+    /// </summary>
+    public double DiscountedCumulativeSavings { get; set; }
+
+    /// <summary>
+    /// Čistá současná hodnota (NPV) = Diskontované úspory - Investice [Kč]
+    /// </summary>
+    public double NetPresentValue { get; set; }
+
+    /// <summary>
+    /// Diskontovaná návratnost investice [roky]
+    /// Rok kdy kumulativní diskontované úspory >= investice
+    /// </summary>
+    public double DiscountedPaybackPeriod { get; set; }
 }
 
 /// <summary>
