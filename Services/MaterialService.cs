@@ -61,7 +61,15 @@ public class MaterialService
             new Material { Name = "Tyvek Housewrap", Category = "Folie a zábrany", ThermalConductivity = 0.14, Density = 750, SpecificHeatCapacity = 1800, Manufacturer = "DuPont", PricePerM3 = 48000, DiffusionResistanceFactor = 0.08 },
             new Material { Name = "Delta-Vent N", Category = "Folie a zábrany", ThermalConductivity = 0.15, Density = 820, SpecificHeatCapacity = 1800, Manufacturer = "Dörken", PricePerM3 = 44000, DiffusionResistanceFactor = 0.15 },
             new Material { Name = "Jutafol N 110 Special", Category = "Folie a zábrany", ThermalConductivity = 0.17, Density = 840, SpecificHeatCapacity = 1800, Manufacturer = "Juta", PricePerM3 = 40000, DiffusionResistanceFactor = 0.12 },
-            
+
+            // Vzduchové mezery neprovětrávané - s fixními R-hodnotami podle ČSN EN ISO 6946
+            new Material { Name = "Vzduchová mezera 0-5 mm", Category = "Vzduchové mezery neprovětrávané", ThermalConductivity = 0.024, Density = 1.2, SpecificHeatCapacity = 1005, Manufacturer = "Standard", PricePerM3 = 0.0, DiffusionResistanceFactor = 1.0, IsAirGap = true, FixedThermalResistance = 0.00 },
+            new Material { Name = "Vzduchová mezera 5-10 mm", Category = "Vzduchové mezery neprovětrávané", ThermalConductivity = 0.024, Density = 1.2, SpecificHeatCapacity = 1005, Manufacturer = "Standard", PricePerM3 = 0.0, DiffusionResistanceFactor = 1.0, IsAirGap = true, FixedThermalResistance = 0.11 },
+            new Material { Name = "Vzduchová mezera 10-15 mm", Category = "Vzduchové mezery neprovětrávané", ThermalConductivity = 0.024, Density = 1.2, SpecificHeatCapacity = 1005, Manufacturer = "Standard", PricePerM3 = 0.0, DiffusionResistanceFactor = 1.0, IsAirGap = true, FixedThermalResistance = 0.13 },
+            new Material { Name = "Vzduchová mezera 15-25 mm", Category = "Vzduchové mezery neprovětrávané", ThermalConductivity = 0.024, Density = 1.2, SpecificHeatCapacity = 1005, Manufacturer = "Standard", PricePerM3 = 0.0, DiffusionResistanceFactor = 1.0, IsAirGap = true, FixedThermalResistance = 0.14 },
+            new Material { Name = "Vzduchová mezera 25-50 mm", Category = "Vzduchové mezery neprovětrávané", ThermalConductivity = 0.024, Density = 1.2, SpecificHeatCapacity = 1005, Manufacturer = "Standard", PricePerM3 = 0.0, DiffusionResistanceFactor = 1.0, IsAirGap = true, FixedThermalResistance = 0.16 },
+            new Material { Name = "Vzduchová mezera 50-300 mm", Category = "Vzduchové mezery neprovětrávané", ThermalConductivity = 0.024, Density = 1.2, SpecificHeatCapacity = 1005, Manufacturer = "Standard", PricePerM3 = 0.0, DiffusionResistanceFactor = 1.0, IsAirGap = true, FixedThermalResistance = 0.17 },
+
             // Ostatní
             new Material { Name = "Beton C25/30", Category = "Ostatní", ThermalConductivity = 2.0, Density = 2400, SpecificHeatCapacity = 880, Manufacturer = "Standard", PricePerM3 = 1500, DiffusionResistanceFactor = 15.0 },
             new Material { Name = "Železobeton", Category = "Ostatní", ThermalConductivity = 2.3, Density = 2500, SpecificHeatCapacity = 880, Manufacturer = "Standard", PricePerM3 = 2000, DiffusionResistanceFactor = 15.0 },
@@ -72,7 +80,7 @@ public class MaterialService
     
     public List<string> GetCategories()
     {
-        return new List<string> { "Zdivo", "Dřevo", "Izolace", "Omítky", "Folie a zábrany", "Ostatní", "Jiné" };
+        return new List<string> { "Zdivo", "Dřevo", "Izolace", "Omítky", "Folie a zábrany", "Vzduchové mezery neprovětrávané", "Ostatní", "Jiné" };
     }
 
     public List<Material> GetAllMaterials()

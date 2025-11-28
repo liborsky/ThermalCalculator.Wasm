@@ -13,7 +13,11 @@ public class Material
     public double Thickness { get; set; } // tloušťka v metrech
     public string Unit { get; set; } = "m"; // jednotka tloušťky
     public double DiffusionResistanceFactor { get; set; } = 0; // faktor difúzního odporu μ (mí)
-    
+
+    // Vlastnosti pro vzduchové mezery
+    public bool IsAirGap { get; set; } = false; // indikuje, zda se jedná o vzduchovou mezeru
+    public double? FixedThermalResistance { get; set; } = null; // fixní R-hodnota pro vzduchové mezery v m²·K/W
+
     public double ThermalResistance => Thickness / ThermalConductivity; // R = d/λ v m²·K/W
 }
 
@@ -21,8 +25,22 @@ public class WallLayer
 {
     public Material Material { get; set; } = new();
     public double Thickness { get; set; } // v milimetrech
-    
-    public double ThermalResistance => (Thickness / 1000.0) / Material.ThermalConductivity; // převod mm na m
+
+    public double ThermalResistance
+    {
+        get
+        {
+            // Pokud je to vzduchová mezera s fixní R-hodnotou, použij ji
+            if (Material.IsAirGap && Material.FixedThermalResistance.HasValue)
+            {
+                return Material.FixedThermalResistance.Value;
+            }
+
+            // Jinak standardní výpočet R = d/λ
+            return (Thickness / 1000.0) / Material.ThermalConductivity; // převod mm na m
+        }
+    }
+
     public double DiffusionResistance => (Thickness / 1000.0) * Material.DiffusionResistanceFactor; // difúzní odpor v m
 }
 
