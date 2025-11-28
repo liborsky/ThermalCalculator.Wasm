@@ -140,15 +140,15 @@
                                     }
                                 </select>
                             </div>
-                            <div class="col-md-2">
-                                <ValidatedInput 
+                            <div class="col-md-3">
+                                <ValidatedInput
                                     Label="Tloušťka"
                                     Value="@GetThicknessString(layer)"
                                     ValueChanged="@(value => OnThicknessChanged(index, value))"
                                     InputType="number"
                                     Unit="mm"
-                                    Step="1"
-                                    Min="1"
+                                    Step="0.1"
+                                    Min="0.1"
                                     Max="1000"
                                     IsRequired="true"
                                     Tooltip="Tloušťka vrstvy materiálu v milimetrech"
@@ -770,7 +770,19 @@
     private async void AddLayer()
     {
         var defaultMaterial = availableMaterials.FirstOrDefault() ?? new Material();
-        
+
+        // Výchozí tloušťka podle kategorie materiálu
+        double defaultThickness = defaultMaterial.Category switch
+        {
+            "Sádrokartony" => 12.5,
+            "Omítky" => 10,
+            "Folie a zábrany" => 0.2,
+            "Vzduchové mezery neprovětrávané" => 20,
+            "Izolace" => 100,
+            "Zdivo" => 300,
+            _ => 100
+        };
+
         wallAssembly.Layers.Add(new WallLayer
         {
             Material = new Material
@@ -783,9 +795,11 @@
                 Manufacturer = defaultMaterial.Manufacturer,
                 ProductCode = defaultMaterial.ProductCode,
                 PricePerM3 = defaultMaterial.PricePerM3,
-                DiffusionResistanceFactor = defaultMaterial.DiffusionResistanceFactor
+                DiffusionResistanceFactor = defaultMaterial.DiffusionResistanceFactor,
+                IsAirGap = defaultMaterial.IsAirGap,
+                FixedThermalResistance = defaultMaterial.FixedThermalResistance
             },
-            Thickness = 100
+            Thickness = defaultThickness
         });
         
         // Tracking událostí
@@ -821,7 +835,9 @@
                     Manufacturer = selectedMaterial.Manufacturer,
                     ProductCode = selectedMaterial.ProductCode,
                     PricePerM3 = selectedMaterial.PricePerM3,
-                    DiffusionResistanceFactor = selectedMaterial.DiffusionResistanceFactor
+                    DiffusionResistanceFactor = selectedMaterial.DiffusionResistanceFactor,
+                    IsAirGap = selectedMaterial.IsAirGap,
+                    FixedThermalResistance = selectedMaterial.FixedThermalResistance
                 };
                 
                 // Tracking událostí - změna materiálu je efektivně nová kalkulace
@@ -883,7 +899,17 @@
     
     private int GetTotalThickness()
     {
-        return wallAssembly.Layers.Sum(layer => (int)layer.Thickness);
+        // DEBUG: Vypsat všechny vrstvy
+        Console.WriteLine($"=== GetTotalThickness called ===");
+        Console.WriteLine($"Počet vrstev: {wallAssembly.Layers.Count}");
+        foreach (var layer in wallAssembly.Layers)
+        {
+            Console.WriteLine($"  - {layer.Material.Name}: {layer.Thickness}mm");
+        }
+        var total = wallAssembly.Layers.Sum(layer => (int)layer.Thickness);
+        Console.WriteLine($"Celková tloušťka: {total}mm");
+        Console.WriteLine($"============================");
+        return total;
     }
     
     private async Task ExportToPdf()
