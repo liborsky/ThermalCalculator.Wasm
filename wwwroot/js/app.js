@@ -464,19 +464,30 @@ window.initDragDrop = function(blazorRef) {
 
 // Začátek přetahování
 window.onDragStart = function(event, index) {
+    console.log('onDragStart called with index:', index);
+
     window.dragState.draggedIndex = index;
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/html', event.target.outerHTML);
+
+    if (event && event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', index.toString());
+    }
 
     // Přidat CSS třídu pro vizuální feedback
-    event.target.classList.add('dragging');
+    const target = event.target.closest('.layer-row');
+    if (target) {
+        target.classList.add('dragging');
+    }
 
     console.log('Drag started for layer:', index);
 };
 
 // Konec přetahování
 window.onDragEnd = function(event) {
-    event.target.classList.remove('dragging');
+    const target = event.target.closest('.layer-row');
+    if (target) {
+        target.classList.remove('dragging');
+    }
 
     // Vyčistit všechny drop zone indikátory
     const dropZones = document.querySelectorAll('.layer-row');

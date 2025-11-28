@@ -88,17 +88,16 @@
                     {
                         var layer = wallAssembly.Layers[i];
                         var index = i;
-                        
-                        <div class="layer-row row mb-3 p-3 border rounded" 
+
+                        <div class="layer-row row mb-3 p-3 border rounded"
                              draggable="true"
-                             @ondragstart="@(e => OnDragStart(e, index))"
-                             @ondragend="@(e => OnDragEnd(e))"
-                             @ondragenter="@(e => OnDragEnter(e, index))"
-                             @ondragover="@(e => OnDragOver(e, index))" 
-                             @ondragover:preventDefault="true"
-                             @ondragleave="@(e => OnDragLeave(e, index))"
-                             @ondrop="@(e => OnDrop(e, index))"
-                             @ondrop:preventDefault="true">
+                             data-layer-index="@index"
+                             ondragstart="window.onDragStart(event, @index)"
+                             ondragend="window.onDragEnd(event)"
+                             ondragenter="window.onDragEnter(event, @index)"
+                             ondragover="event.preventDefault(); window.onDragOver(event, @index)"
+                             ondragleave="window.onDragLeave(event, @index)"
+                             ondrop="event.preventDefault(); window.onDrop(event, @index)">
                              
                             <!-- Indikátor pořadí vrstvy -->
                             <div class="layer-order">@(i + 1)</div>
@@ -145,13 +144,13 @@
                                     Label="Tloušťka"
                                     Value="@GetThicknessString(layer)"
                                     ValueChanged="@(value => OnThicknessChanged(index, value))"
-                                    InputType="number"
+                                    InputType="text"
                                     Unit="mm"
-                                    Step="0.1"
+                                    Step="any"
                                     Min="0.1"
                                     Max="1000"
                                     IsRequired="true"
-                                    Tooltip="Tloušťka vrstvy materiálu v milimetrech"
+                                    Tooltip="Tloušťka vrstvy materiálu v milimetrech (použijte čárku nebo tečku: 12,5 nebo 12.5)"
                                     CustomValidator="@(value => ValidateThickness(layer, value))"
                                     ContainerClass="mb-0" />
                             </div>
@@ -243,7 +242,7 @@
                         <div class="mb-3">
                             <label class="form-label">Celková tloušťka skladby</label>
                             <div class="h4 text-info">
-                                @GetTotalThickness() mm
+                                @($"{GetTotalThickness():F1}") mm
                             </div>
                         </div>
                     }
@@ -897,7 +896,7 @@
         };
     }
     
-    private int GetTotalThickness()
+    private double GetTotalThickness()
     {
         // DEBUG: Vypsat všechny vrstvy
         Console.WriteLine($"=== GetTotalThickness called ===");
@@ -906,7 +905,7 @@
         {
             Console.WriteLine($"  - {layer.Material.Name}: {layer.Thickness}mm");
         }
-        var total = wallAssembly.Layers.Sum(layer => (int)layer.Thickness);
+        var total = wallAssembly.Layers.Sum(layer => layer.Thickness);
         Console.WriteLine($"Celková tloušťka: {total}mm");
         Console.WriteLine($"============================");
         return total;
@@ -1485,11 +1484,12 @@
             // Inicializace drag & drop
             await JS.InvokeVoidAsync("initDragDrop", selfReference);
         }
-        
-        if (wallAssembly.Layers.Count > 0)
-        {
-            await CreateCharts();
-        }
+
+        // Grafy jsou vypnuté - jsou otravující a hnusný
+        // if (wallAssembly.Layers.Count > 0)
+        // {
+        //     await CreateCharts();
+        // }
     }
     
     private async Task CreateCharts()
@@ -1780,19 +1780,26 @@
     
     private async Task OnThicknessChanged(int layerIndex, string value)
     {
-        if (double.TryParse(value, out double thickness))
+        // Normalize decimal separator - accept both comma and dot
+        var normalizedValue = value?.Replace(',', '.');
+
+        if (double.TryParse(normalizedValue, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double thickness))
         {
             wallAssembly.Layers[layerIndex].Thickness = thickness;
             StateHasChanged();
-            await CreateCharts();
+            // CreateCharts() neexistují na ThermalResistance stránce - grafy jsou pouze na CondensationRisk stránce
+            // await CreateCharts();
         }
     }
     
     private List<ValidationResult> ValidateThickness(WallLayer layer, string value)
     {
         var results = new List<ValidationResult>();
-        
-        if (!double.TryParse(value, out double thickness))
+
+        // Normalize decimal separator - accept both comma and dot
+        var normalizedValue = value?.Replace(',', '.');
+
+        if (!double.TryParse(normalizedValue, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double thickness))
         {
             return results; // Základní validace už proběhla
         }
