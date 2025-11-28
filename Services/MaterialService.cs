@@ -49,7 +49,15 @@ public class MaterialService
             new Material { Name = "Vápenná omítka", Category = "Omítky", ThermalConductivity = 0.7, Density = 1600, SpecificHeatCapacity = 880, Manufacturer = "Standard", PricePerM3 = 800, DiffusionResistanceFactor = 8.0 },
             new Material { Name = "Cementová omítka", Category = "Omítky", ThermalConductivity = 1.0, Density = 1800, SpecificHeatCapacity = 880, Manufacturer = "Standard", PricePerM3 = 900, DiffusionResistanceFactor = 10.0 },
             new Material { Name = "Sádrová omítka", Category = "Omítky", ThermalConductivity = 0.4, Density = 1200, SpecificHeatCapacity = 1000, Manufacturer = "Standard", PricePerM3 = 1200, DiffusionResistanceFactor = 6.0 },
-            
+
+            // Sádrokartony
+            new Material { Name = "SDK standardní (běžný)", Category = "Sádrokartony", ThermalConductivity = 0.22, Density = 750, SpecificHeatCapacity = 1060, Manufacturer = "Rigips/Knauf", PricePerM3 = 6000, DiffusionResistanceFactor = 90.0 },
+            new Material { Name = "SDK požárně odolný (červený)", Category = "Sádrokartony", ThermalConductivity = 0.22, Density = 800, SpecificHeatCapacity = 1060, Manufacturer = "Rigips RF/Knauf GKF", PricePerM3 = 12400, DiffusionResistanceFactor = 90.0 },
+            new Material { Name = "SDK vlhkuvzdorný (zelený)", Category = "Sádrokartony", ThermalConductivity = 0.22, Density = 750, SpecificHeatCapacity = 1060, Manufacturer = "Rigips RBI/Knauf GKBI", PricePerM3 = 9760, DiffusionResistanceFactor = 90.0 },
+            new Material { Name = "SDK požárně odolný impregnovaný", Category = "Sádrokartony", ThermalConductivity = 0.22, Density = 800, SpecificHeatCapacity = 1060, Manufacturer = "Rigips RFI", PricePerM3 = 12800, DiffusionResistanceFactor = 90.0 },
+            new Material { Name = "SDK rázuvzdorný (Rigips Habito)", Category = "Sádrokartony", ThermalConductivity = 0.22, Density = 1000, SpecificHeatCapacity = 1060, Manufacturer = "Rigips Habito H", PricePerM3 = 15000, DiffusionResistanceFactor = 90.0 },
+            new Material { Name = "SDK akustický (modrý)", Category = "Sádrokartony", ThermalConductivity = 0.22, Density = 900, SpecificHeatCapacity = 1060, Manufacturer = "Rigips MA", PricePerM3 = 13120, DiffusionResistanceFactor = 90.0 },
+
             // Folie a zábrany
             new Material { Name = "Parozábrana PE 0,2 mm", Category = "Folie a zábrany", ThermalConductivity = 0.2, Density = 920, SpecificHeatCapacity = 2300, Manufacturer = "Standard", PricePerM3 = 25000, DiffusionResistanceFactor = 100000.0 },
             new Material { Name = "Parozábrana AL 0,1 mm", Category = "Folie a zábrany", ThermalConductivity = 0.25, Density = 2700, SpecificHeatCapacity = 896, Manufacturer = "Standard", PricePerM3 = 45000, DiffusionResistanceFactor = 200000.0 },
@@ -80,7 +88,7 @@ public class MaterialService
     
     public List<string> GetCategories()
     {
-        return new List<string> { "Zdivo", "Dřevo", "Izolace", "Omítky", "Folie a zábrany", "Vzduchové mezery neprovětrávané", "Ostatní", "Jiné" };
+        return new List<string> { "Zdivo", "Dřevo", "Izolace", "Omítky", "Sádrokartony", "Folie a zábrany", "Vzduchové mezery neprovětrávané", "Ostatní", "Jiné" };
     }
 
     public List<Material> GetAllMaterials()
